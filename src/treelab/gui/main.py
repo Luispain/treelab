@@ -1703,10 +1703,12 @@ class NewNodeDialog(QDialog):
         self.setLayout(self.layout)
 
 
-def launch( args='' ):
-    if isinstance(args, str): args = args.split(' ')
+def launch():
+    print(sys.argv)
+    args = sys.argv[1:] 
 
-    filename = [f for f in args if f.endswith('.cgns')]
+    filename = [f for f in args if f.endswith('.cgns') or \
+                                   f.endswith('.hdf')]
     if filename: filename = filename[0]
     
     only_skeleton = any([f for f in args if f=='-s'])
@@ -1714,7 +1716,7 @@ def launch( args='' ):
     app = Qt.QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
     print('filename=',filename)
-    print('only_skeleton=',only_skeleton)
+    print('only_skeleton=',only_skeleton, " (use -s to set to True)")
     MW = MainWindow( filename, only_skeleton )
     MW.resize(650, 800)
     MW.show()

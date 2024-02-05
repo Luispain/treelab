@@ -22,6 +22,17 @@ classifiers = [
 Homepage = "https://github.com/onera/MOLA"
 Issues = "https://github.com/onera/MOLA/issues"
 
+[project.gui-scripts]
+treelab = "treelab.gui.main:launch"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/treelab"]
 
+# [project.scripts]
+# treelab = "treelab.gui.main:launch"
+
+# [tool.hatch.build.targets.sdist.force-include]
+# "src/treelab/bin" = "treelab/bin"
+
+# [tool.hatch.build.targets.wheel.force-include]
+# "src/treelab/bin" = "treelab/bin"
