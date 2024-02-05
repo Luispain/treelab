@@ -17,6 +17,12 @@ classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+  "numpy>=1.21.0",
+  "h5py>=3.7.0",
+  "matplotlib>=3.7.0",
+  "pyqt5>=5.15.9",
+]
 
 [project.urls]
 Homepage = "https://github.com/onera/MOLA"
