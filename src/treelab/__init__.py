@@ -15,11 +15,11 @@
 #    You should have received a copy of the GNU General Public License
 #    along with MOLA.  If not, see <http://www.gnu.org/licenses/>.
 
-import os
-__version__ = 'dev'
-__TREELAB_PATH__ = os.path.sep.join(__file__.split(os.path.sep)[:-2])
+__version__ = '0.0.1dev0'
 
 try:
+    import os
+    __TREELAB_PATH__ = os.path.sep.join(__file__.split(os.path.sep)[:-2])
     def getSHA():
         with open('{}/../.git/HEAD'.format(__TREELAB_PATH__), 'r') as HEAD:
             line = HEAD.readlines()[0]

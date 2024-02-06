@@ -27,6 +27,7 @@ from timeit import default_timer as toc
 import matplotlib.pyplot as plt
 plt.ion()
 
+window_main_title = f'TreeLab ({__version__})'
 
 class SnappingCursor:
     """
@@ -308,13 +309,13 @@ class MainWindow(QMainWindow):
 
         if filename:
             onlyFileName = filename.split(os.sep)[-1]
-            self.setWindowTitle(f"TreeLab ({__version__}) "+onlyFileName)
+            self.setWindowTitle(window_main_title+' '+onlyFileName)
             self.t = cgns.Tree()
             self.t.file = filename
         else:
             self.t = cgns.Tree()
             self.t.file = None
-            self.setWindowTitle("TreeLab - untitled ")
+            self.setWindowTitle(window_main_title+' untitled')
         
         
 
@@ -957,8 +958,9 @@ class MainWindow(QMainWindow):
                         stack.append(child)
 
     def openAddTree(self):
-        fname = QFileDialog.getOpenFileName(self, 'Add file', '.',"CGNS files (*.cgns)")
+        fname = QFileDialog.getOpenFileName(self, 'Add file', '.',"CGNS files (*.cgns *.hdf *.hdf5)")
         onlyFileName = fname[0].split(os.sep)[-1]
+        if not onlyFileName: return
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         print('building full CGNS...')
         tic = toc()
@@ -973,11 +975,11 @@ class MainWindow(QMainWindow):
 
 
     def openTree(self):
-        fname = QFileDialog.getOpenFileName(self, 'Open file', '.',"CGNS files (*.cgns)")
+        fname = QFileDialog.getOpenFileName(self, 'Open file', '.',"CGNS files (*.cgns *.hdf *.hdf5)")
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         onlyFileName = fname[0].split(os.sep)[-1]
         if not onlyFileName: return
-        self.setWindowTitle("TreeLab - "+onlyFileName)
+        self.setWindowTitle(window_main_title+' '+onlyFileName)
         print('building CGNS structure...')
         tic = toc()
         self.t = cgns.load(fname[0], only_skeleton=self.only_skeleton)
@@ -1025,7 +1027,7 @@ class MainWindow(QMainWindow):
             self.t.save(fname[0])
             print('done')
             self.t.file = fname[0]
-            self.setWindowTitle("TreeLab - "+onlyFileName)
+            self.setWindowTitle(window_main_title+' '+onlyFileName)
             QApplication.restoreOverrideCursor()
 
 

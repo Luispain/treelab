@@ -2,9 +2,12 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/treelab/__init__.py"
+
 [project]
 name = "mola-treelab"
-version = "0.0.1"
+dynamic = ["version"]
 authors = [
   { name="Luis Bernardos", email="luisfco.bernardos@gmail.com" },
   { name="Thomas Bontemps", email="thomas.bontemps@hotmail.fr" }
