@@ -21,6 +21,7 @@ import traceback
 import sys, os, time
 import numpy as np
 from .. import cgns
+from .. import __version__
 from timeit import default_timer as toc
 
 import matplotlib.pyplot as plt
@@ -106,19 +107,14 @@ class SnappingCursor:
             self.user_annotations += [ user_annot ]
             self.ax.figure.canvas.draw()
 
-try:
-    from PyQt5 import Qt, QtGui, QtWidgets, QtCore
-except BaseException as e:
-    print(('import of PyQt5 failed. Please try reinstalling:\n'
-          'pip3 install --user --upgrade --force-reinstall PyQt5'))
-    raise e
 
-from PyQt5.QtWidgets import (
+from PySide6 import Qt, QtGui, QtWidgets, QtCore
+
+from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
     QToolBar,
-    QAction,
     QStatusBar,
     QCheckBox,
     QVBoxLayout,
@@ -129,7 +125,6 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QFileDialog,
-    QShortcut,
     QAbstractItemView,
     QAbstractButton,
     QComboBox,
@@ -147,7 +142,7 @@ from PyQt5.QtWidgets import (
 GUIpath = os.path.dirname(os.path.realpath(__file__))
 
 style="""QTreeView {{
-    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #e7effd, stop: 1 #cbdaf1);
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
 }}
 
 QTreeView::branch:has-siblings:!adjoins-item {{
@@ -197,17 +192,17 @@ class MainWindow(QMainWindow):
         self.dock.VLayout.layout().addWidget(self.dock.node_toolbar)
 
 
-        self.dock.node_toolbar.button_update_node_data = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle-double.png") ,"load or update node(s) data from file (F5)", self)
+        self.dock.node_toolbar.button_update_node_data = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle-double.png") ,"load or update node(s) data from file (F5)", self)
         self.dock.node_toolbar.button_update_node_data.setStatusTip("load or update selected node(s) data and their children of type DataArray_t from file (F5)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_update_node_data)
-        key_update_node_data = QShortcut(QtGui.QKeySequence('F5'), self)
+        key_update_node_data = QtGui.QShortcut(QtGui.QKeySequence('F5'), self)
         key_update_node_data.activated.connect(self.update_node_data)
         self.dock.node_toolbar.button_update_node_data.triggered.connect(self.update_node_data)
 
-        self.dock.node_toolbar.button_unload_node_data_recursively = QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-squelette-16.png") ,"unload data of node(s) from memory (F6)", self)
+        self.dock.node_toolbar.button_unload_node_data_recursively = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-squelette-16.png") ,"unload data of node(s) from memory (F6)", self)
         self.dock.node_toolbar.button_unload_node_data_recursively.setStatusTip("unload data of selected node(s) and their children of type DataArray_t (F6)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_unload_node_data_recursively)
-        key_unload_node_data = QShortcut(QtGui.QKeySequence('F6'), self)
+        key_unload_node_data = QtGui.QShortcut(QtGui.QKeySequence('F6'), self)
         key_unload_node_data.activated.connect(self.unload_node_data_recursively)
         self.dock.node_toolbar.button_unload_node_data_recursively.triggered.connect(self.unload_node_data_recursively)
 
@@ -217,36 +212,36 @@ class MainWindow(QMainWindow):
         pixmap = pixmap.transformed(tr)
         icon = QtGui.QIcon()
         icon.addPixmap(pixmap)
-        self.dock.node_toolbar.button_replace_link = QAction(icon ,"read link", self)
+        self.dock.node_toolbar.button_replace_link = QtGui.QAction(icon ,"read link", self)
         self.dock.node_toolbar.button_replace_link.setStatusTip("Read link of selected node(s) from file (must be Link_t)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_replace_link)
         self.dock.node_toolbar.button_replace_link.triggered.connect(self.replace_link)
 
-        self.dock.node_toolbar.button_modify_node_data = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk--arrow.png") ,"write selected node(s) in file (F8)", self)
+        self.dock.node_toolbar.button_modify_node_data = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk--arrow.png") ,"write selected node(s) in file (F8)", self)
         self.dock.node_toolbar.button_modify_node_data.setStatusTip("write selected node(s) in file (F8)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_modify_node_data)
-        key_modify_node_data = QShortcut(QtGui.QKeySequence('F8'), self)
+        key_modify_node_data = QtGui.QShortcut(QtGui.QKeySequence('F8'), self)
         key_modify_node_data.activated.connect(self.modify_node_data)
         self.dock.node_toolbar.button_modify_node_data.triggered.connect(self.modify_node_data)
 
         self.dock.node_toolbar.addSeparator()
 
-        self.dock.node_toolbar.button_add_plot_x_container = QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container", self)
+        self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container", self)
         self.dock.node_toolbar.button_add_plot_x_container.setStatusTip("add node(s) data to X plotter container")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_x_container)
         self.dock.node_toolbar.button_add_plot_x_container.triggered.connect(self.add_selected_nodes_to_plot_x_container)
 
-        self.dock.node_toolbar.button_add_plot_y_container = QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container", self)
+        self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container", self)
         self.dock.node_toolbar.button_add_plot_y_container.setStatusTip("add node(s) data to y plotter container")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_y_container)
         self.dock.node_toolbar.button_add_plot_y_container.triggered.connect(self.add_selected_nodes_to_plot_y_container)
 
-        self.dock.node_toolbar.button_add_curve = QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/add-curve-16.png") ,"add curve to plotter", self)
+        self.dock.node_toolbar.button_add_curve = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/add-curve-16.png") ,"add curve to plotter", self)
         self.dock.node_toolbar.button_add_curve.setStatusTip("add curve to plotter")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_curve)
         self.dock.node_toolbar.button_add_curve.triggered.connect(self.add_curve)
 
-        self.dock.node_toolbar.button_draw_curves = QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/see-curve-16.png") ,"draw all curves", self)
+        self.dock.node_toolbar.button_draw_curves = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/see-curve-16.png") ,"draw all curves", self)
         self.dock.node_toolbar.button_draw_curves.setStatusTip("draw all curves")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_draw_curves)
         self.dock.node_toolbar.button_draw_curves.triggered.connect(self.draw_curves)
@@ -299,7 +294,7 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderHidden(True)
         self.tree.setModel(self.tree.model)
         self.tree.setStyleSheet(style)
-        self.tree.setSelectionMode(self.tree.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.tree.setDragDropMode(QAbstractItemView.DragDrop)
         self.tree.setDragEnabled(True)
         self.tree.setAcceptDrops(True)
@@ -313,7 +308,7 @@ class MainWindow(QMainWindow):
 
         if filename:
             onlyFileName = filename.split(os.sep)[-1]
-            self.setWindowTitle("TreeLab - "+onlyFileName)
+            self.setWindowTitle(f"TreeLab ({__version__}) "+onlyFileName)
             self.t = cgns.Tree()
             self.t.file = filename
         else:
@@ -327,79 +322,79 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main toolbar")
         self.addToolBar(toolbar)
 
-        button_open = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/folder-horizontal-open.png") ,"open (Ctrl+O)", self)
+        button_open = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/folder-horizontal-open.png") ,"open (Ctrl+O)", self)
         button_open.setStatusTip("Open a tree from a file")
         button_open.triggered.connect(self.openTree)
-        key_openTree = QShortcut(QtGui.QKeySequence('Ctrl+O'), self)
+        key_openTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+O'), self)
         key_openTree.activated.connect(self.openTree)
         toolbar.addAction(button_open)
 
-        button_openAdd = QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/folder-horizontal-open-plus") ,"add tree (Ctrl+Shift+O)", self)
+        button_openAdd = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/folder-horizontal-open-plus") ,"add tree (Ctrl+Shift+O)", self)
         button_openAdd.setStatusTip("Open a tree from a file and add it to current tree (Ctrl+Shift+O)")
         button_openAdd.triggered.connect(self.openAddTree)
-        key_openAddTree = QShortcut(QtGui.QKeySequence('Ctrl+Shift+O'), self)
+        key_openAddTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+O'), self)
         key_openAddTree.activated.connect(self.openAddTree)
         toolbar.addAction(button_openAdd)
 
 
-        button_reopen = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle.png") ,"Open again (Shift + F5)", self)
+        button_reopen = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle.png") ,"Open again (Shift + F5)", self)
         button_reopen.setStatusTip("Open again the current tree from file (Shift + F5)")
         button_reopen.triggered.connect(self.reopenTree)
-        key_reopen = QShortcut(QtGui.QKeySequence('Shift+F5'), self)
+        key_reopen = QtGui.QShortcut(QtGui.QKeySequence('Shift+F5'), self)
         key_reopen.activated.connect(self.reopenTree)
         toolbar.addAction(button_reopen)
 
-        button_save = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk.png") ,"save (Ctrl+S)", self)
+        button_save = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk.png") ,"save (Ctrl+S)", self)
         button_save.setStatusTip("Save the current tree")
         button_save.triggered.connect(self.saveTree)
-        key_saveTree = QShortcut(QtGui.QKeySequence('Ctrl+S'), self)
+        key_saveTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+S'), self)
         key_saveTree.activated.connect(self.saveTree)
         toolbar.addAction(button_save)
 
-        button_saveAs = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk--plus.png") ,"save as (Ctrl+Shift+S)", self)
+        button_saveAs = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/disk--plus.png") ,"save as (Ctrl+Shift+S)", self)
         button_saveAs.setStatusTip("Save the current tree as new file")
         button_saveAs.triggered.connect(self.saveTreeAs)
-        key_saveTreeAs = QShortcut(QtGui.QKeySequence('Ctrl+Shift+S'), self)
+        key_saveTreeAs = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+S'), self)
         key_saveTreeAs.activated.connect(self.saveTreeAs)
         toolbar.addAction(button_saveAs)
 
         toolbar.addSeparator()
 
-        button_zoomIn = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-in.png") ,"zoom in (+)", self)
+        button_zoomIn = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-in.png") ,"zoom in (+)", self)
         button_zoomIn.setStatusTip("Zoom in the tree (+)")
         button_zoomIn.triggered.connect(self.zoomInTree)
-        key_zoomInTree = QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Plus), self)
+        key_zoomInTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Plus), self)
         key_zoomInTree.activated.connect(self.zoomInTree)
         toolbar.addAction(button_zoomIn)
 
-        button_zoomOut = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-out.png") ,"zoom out (-)", self)
+        button_zoomOut = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-out.png") ,"zoom out (-)", self)
         button_zoomOut.setStatusTip("Zoom out the tree (-)")
         button_zoomOut.triggered.connect(self.zoomOutTree)
-        key_zoomOutTree = QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Minus), self)
+        key_zoomOutTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Minus), self)
         key_zoomOutTree.activated.connect(self.zoomOutTree)
         toolbar.addAction(button_zoomOut)
 
-        button_expandAll = QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand-48") ,"expand all nodes", self)
+        button_expandAll = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand-48") ,"expand all nodes", self)
         button_expandAll.setStatusTip("Expand all the nodes of the tree")
         button_expandAll.triggered.connect(self.tree.expandAll)
         toolbar.addAction(button_expandAll)
 
-        button_expandZones = QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand3-48") ,"expand to depth 3", self)
+        button_expandZones = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand3-48") ,"expand to depth 3", self)
         button_expandZones.setStatusTip("Expand up to three levels of the tree")
         button_expandZones.triggered.connect(self.expandToZones)
         toolbar.addAction(button_expandZones)
 
-        button_collapseAll = QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-collapse-48") ,"collapse all nodes", self)
+        button_collapseAll = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-collapse-48") ,"collapse all nodes", self)
         button_collapseAll.setStatusTip("Collapse all the nodes of the tree")
         button_collapseAll.triggered.connect(self.tree.collapseAll)
         toolbar.addAction(button_collapseAll)
 
         toolbar.addSeparator()
 
-        button_findNode = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/node-magnifier") ,"find node (Ctrl+F)", self)
+        button_findNode = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/node-magnifier") ,"find node (Ctrl+F)", self)
         button_findNode.setStatusTip("Find node using criteria based on Name, Value and Type (Ctrl+F)")
         button_findNode.triggered.connect(self.findNodesTree)
-        key_findNodesTree = QShortcut(QtGui.QKeySequence('Ctrl+F'), self)
+        key_findNodesTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+F'), self)
         key_findNodesTree.activated.connect(self.findNodesTree)
         toolbar.addAction(button_findNode)
         self.NameToBeFound = None
@@ -409,60 +404,60 @@ class MainWindow(QMainWindow):
         self.FoundNodes = []
         self.CurrentFoundNodeIndex = -1
 
-        button_findNextNode = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier--arrow") ,"find next node (F3)", self)
+        button_findNextNode = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier--arrow") ,"find next node (F3)", self)
         button_findNextNode.setStatusTip("Find next node (F3)")
         button_findNextNode.triggered.connect(self.findNextNodeTree)
-        key_findNextNodeTree = QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F3), self)
+        key_findNextNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F3), self)
         key_findNextNodeTree.activated.connect(self.findNextNodeTree)
         toolbar.addAction(button_findNextNode)
 
         toolbar.addSeparator()
 
-        button_newNodeTree = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/plus") ,"New node (Ctrl+N)", self)
+        button_newNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/plus") ,"New node (Ctrl+N)", self)
         button_newNodeTree.setStatusTip("Create a new node attached to the selected node in tree (Ctrl+N)")
         button_newNodeTree.triggered.connect(self.newNodeTree)
         toolbar.addAction(button_newNodeTree)
-        key_newNodeTree = QShortcut(QtGui.QKeySequence('Ctrl+N'), self.tree)
+        key_newNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+N'), self.tree)
         key_newNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_newNodeTree.activated.connect(self.newNodeTree)
 
-        button_deleteNodeTree = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/cross") ,"remove selected nodes (Supr)", self)
+        button_deleteNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/cross") ,"remove selected nodes (Supr)", self)
         button_deleteNodeTree.setStatusTip("remove selected node (Supr)")
         button_deleteNodeTree.triggered.connect(self.deleteNodeTree)
         toolbar.addAction(button_deleteNodeTree)
-        key_deleteNodeTree = QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.tree)
+        key_deleteNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.tree)
         key_deleteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_deleteNodeTree.activated.connect(self.deleteNodeTree)
 
 
-        button_swap = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-switch.png"), "swap selected nodes", self)
+        button_swap = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-switch.png"), "swap selected nodes", self)
         button_swap.setStatusTip("After choosing two nodes, swap their position in the tree")
         button_swap.triggered.connect(self.swapNodes)
         toolbar.addAction(button_swap)
 
-        button_copyNodeTree = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/blue-document-copy") ,"copy selected nodes (Ctrl+C)", self)
+        button_copyNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/blue-document-copy") ,"copy selected nodes (Ctrl+C)", self)
         button_copyNodeTree.setStatusTip("copy selected nodes (Ctrl+C)")
         button_copyNodeTree.triggered.connect(self.copyNodeTree)
         toolbar.addAction(button_copyNodeTree)
-        key_copyNodeTree = QShortcut(QtGui.QKeySequence('Ctrl+C'), self.tree)
+        key_copyNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+C'), self.tree)
         key_copyNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_copyNodeTree.activated.connect(self.copyNodeTree)
         self.copiedNodes = []
 
-        button_cutNodeTree = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/scissors-blue") ,"cut selected nodes (Ctrl+X)", self)
+        button_cutNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/scissors-blue") ,"cut selected nodes (Ctrl+X)", self)
         button_cutNodeTree.setStatusTip("cut selected nodes (Ctrl+X)")
         button_cutNodeTree.triggered.connect(self.cutNodeTree)
         toolbar.addAction(button_cutNodeTree)
-        key_cutNodeTree = QShortcut(QtGui.QKeySequence('Ctrl+X'), self.tree)
+        key_cutNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+X'), self.tree)
         key_cutNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_cutNodeTree.activated.connect(self.cutNodeTree)
 
 
-        button_pasteNodeTree = QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/clipboard-paste") ,"paste nodes (Ctrl+V)", self)
+        button_pasteNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/clipboard-paste") ,"paste nodes (Ctrl+V)", self)
         button_pasteNodeTree.setStatusTip("Paste previously copied nodes at currently selected parent nodes (Ctrl+V)")
         button_pasteNodeTree.triggered.connect(self.pasteNodeTree)
         toolbar.addAction(button_pasteNodeTree)
-        key_pasteNodeTree = QShortcut(QtGui.QKeySequence('Ctrl+V'), self.tree)
+        key_pasteNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+V'), self.tree)
         key_pasteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_pasteNodeTree.activated.connect(self.pasteNodeTree)
 
@@ -810,7 +805,7 @@ class MainWindow(QMainWindow):
             
             indices = self.tree.selectionModel().selectedIndexes()
             self.tree.clearSelection()
-            self.tree.setSelectionMode(self.tree.MultiSelection)
+            self.tree.setSelectionMode(QAbstractItemView.MultiSelection)
             for index in indices:
                 item = self.tree.model.itemFromIndex(index)
 
@@ -830,7 +825,7 @@ class MainWindow(QMainWindow):
                 newindex = self.tree.model.indexFromItem(newitem)
 
                 self.tree.setCurrentIndex(newindex)
-            self.tree.setSelectionMode(self.tree.ExtendedSelection)
+            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
 
     def deleteNodeTree(self):
@@ -906,7 +901,7 @@ class MainWindow(QMainWindow):
             for node in self.FoundNodes:
                 index = self.tree.model.indexFromItem(node.QStandardItem)
                 self.tree.setCurrentIndex(index)
-            self.tree.setSelectionMode(self.tree.ExtendedSelection)
+            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.selectionInfo(None)
             self.CurrentFoundNodeIndex = -1
             # QApplication.restoreOverrideCursor()
@@ -1460,7 +1455,7 @@ class MainWindow(QMainWindow):
                 self.updateModelChildrenFromItem(item)
                 index = self.tree.model.indexFromItem(item)
                 self.tree.setCurrentIndex(index)
-            self.tree.setSelectionMode(self.tree.ExtendedSelection)
+            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
             for item in [item1, item2]:
                 item.isStyleCGNSbeingModified = False
@@ -1469,7 +1464,7 @@ class MainWindow(QMainWindow):
     def setStyleCGNS(self, MainItem):
 
         def putIcon(pathToIconImage):
-            Icon = Qt.QIcon(pathToIconImage)
+            Icon = QtGui.QIcon(pathToIconImage)
             MainItem.setIcon(Icon)
 
         node = MainItem.node_cgns
@@ -1479,12 +1474,12 @@ class MainWindow(QMainWindow):
         font.setBold(False)
         font.setItalic(False)
         brush = QtGui.QBrush()
-        brush.setColor(QtGui.QColor("black"))
+        brush.setColor(QtGui.QColor("white"))
         pointSize = font.pointSize()
         iconSize = int(pointSize*1.333)
         self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
         MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.5),int(iconSize*1.5)))
-        MainItem.setIcon(Qt.QIcon())
+        MainItem.setIcon(QtGui.QIcon())
 
         node_value = node.value()
         node_type = node.type()
@@ -1499,11 +1494,11 @@ class MainWindow(QMainWindow):
         elif node_type == 'Zone_t':
             putIcon(GUIpath+"/icons/icons8/zone-2D.png")
             font.setBold(True)
-            brush.setColor(QtGui.QColor("purple"))
+            brush.setColor(QtGui.QColor("#83acc9"))
         elif node_type == 'CGNSBase_t':
             font.setBold(True)
             font.setItalic(True)
-            brush.setColor(QtGui.QColor("green"))
+            brush.setColor(QtGui.QColor("#6cb369"))
             putIcon(GUIpath+"/icons/icons8/icons8-box-32.png")
         elif node_type == 'GridCoordinates_t':
             putIcon(GUIpath+"/icons/icons8/icons8-coordinate-system-16.png")
@@ -1526,7 +1521,7 @@ class MainWindow(QMainWindow):
             putIcon(GUIpath+"/icons/icons8/icons8-famille-homme-femme-26.png")
             font.setItalic(True)
             brush = QtGui.QBrush()
-            brush.setColor(QtGui.QColor("brown"))
+            brush.setColor(QtGui.QColor("#f59e84"))
         elif node_type == 'ConvergenceHistory_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/system-monitor.png")
             font.setItalic(True)
@@ -1541,7 +1536,7 @@ class MainWindow(QMainWindow):
         elif node_type == 'UserDefinedData_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/user-silhouette.png")
             font.setItalic(True)
-            brush.setColor(QtGui.QColor("gray"))
+            brush.setColor(QtGui.QColor("#bfbfbf"))
         elif node_type == 'ZoneBC_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/border-left.png")
 
@@ -1704,6 +1699,7 @@ class NewNodeDialog(QDialog):
 
 
 def launch():
+    print("tata")
     print(sys.argv)
     args = sys.argv[1:] 
 
@@ -1713,7 +1709,7 @@ def launch():
     
     only_skeleton = any([f for f in args if f=='-s'])
 
-    app = Qt.QApplication( sys.argv )
+    app = QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
     print('filename=',filename)
     print('only_skeleton=',only_skeleton, " (use -s to set to True)")
