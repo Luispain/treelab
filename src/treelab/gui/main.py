@@ -976,6 +976,7 @@ class MainWindow(QMainWindow):
         fname = QFileDialog.getOpenFileName(self, 'Open file', '.',"CGNS files (*.cgns)")
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         onlyFileName = fname[0].split(os.sep)[-1]
+        if not onlyFileName: return
         self.setWindowTitle("TreeLab - "+onlyFileName)
         print('building CGNS structure...')
         tic = toc()
