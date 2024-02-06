@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/onera/MOLA"
-Issues = "https://github.com/onera/MOLA/issues"
+Homepage = "https://github.com/Luispain/treelab"
+Issues = "https://github.com/Luispain/treelab/issues"
 
 [project.gui-scripts]
 treelab = "treelab.gui.main:launch"
