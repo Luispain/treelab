@@ -12,7 +12,7 @@ __pycache__
 *.png
 !src/treelab/gui/icons/**/*.png
 !src/treelab/gui/style/**/*.png
-!doc/treelab/**/*.png
+!doc/**/*.png
 *.svg
 !src/treelab/gui/icons/**/*.svg
 *.ppt
