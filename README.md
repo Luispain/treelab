@@ -1,145 +1,57 @@
-For documentation, examples, major changes, please consult the [documentation site](https://gitlab.onera.net/numerics/mola/-/wikis/home)
+TreeLab is part of [MOLA](https://github.com/onera/MOLA) software, fully sharing its license and rights.
 
-Information for users
-=====================
+Installation
+============
 
-Please use one of the latests **stable versions** of MOLA : `/stck/lbernard/MOLA/v1.14/env_MOLA.sh`
-
-
-Information for developers
-==========================
-
-
-Getting the sources
--------------------
-
-1. create a local directory named `MOLA` and go into it:
-
-```bash
-mkdir /stck/$USER/MOLA
-cd /stck/$USER/MOLA
-```
-
-2. clone the sources from GitLab:
-
-```bash
-git clone git@gitlab.onera.net:numerics/mola.git
-```
-
-Make *sure* that you have correctly set your public ssh Key onto your profile's preferences of ONERA GitLab.
-
-3. replace the newly created directory `mola` by `Dev`:
-
-```bash
-mv mola Dev
-```
-
-4. Replace paths directing to ``lbernard`` by **yours** on files `env_MOLA.sh` and `TEMPLATES/job_template.sh`
-   (except the paths `EXTPYLIB` and `EXTPYLIBSATOR`).
-
-You may adapt this script to simplify this operation (just replace `myMOLA` and `myMOLASATOR`):
-
-```bash
-#!/usr/bin/sh
-# Execute this script once when getting MOLA sources to adapt the files
-# env_MOLA.sh and job_template.sh to your paths
-
-# Do not commit these files !
-# Before pushing your local branch to the GitLab, use the following command
-# to get back these files in their original state :
-#   git checkout env_MOLA.sh && git checkout TEMPLATES/job_template.sh && chmod a+r env_MOLA.sh TEMPLATES/job_template.sh
-# You amy create an alias for this command in your .bash_aliases
-
-# Custom paths for my dev version - TO MODIFY
-export myMOLA='/stck/tbontemp/softs/MOLA/Dev'
-export myMOLASATOR='/tmp_user/sator/tbontemp/MOLA/Dev'
-
-# To be able to use your dev version on sator computation nodes, you must first
-# to copy your dev done on /stck on /tmp_user/sator
-# You may use the following command :
-#   rsync -rav $myMOLA $myMOLASATOR
-
-
-################################################################################
-# DO NOT MODIFY THE LINES BELOW
-
-# MOLA paths of for the master version
-MOLA='/stck/lbernard/MOLA/Dev'
-MOLASATOR='/tmp_user/sator/lbernard/MOLA/Dev'
-
-# Modify paths to my custom MOLA dev version
-sed -i $myMOLA/env_MOLA.sh -e "s|MOLA=$MOLA|MOLA=$myMOLA|"
-sed -i $myMOLA/env_MOLA.sh -e "s|MOLASATOR=$MOLASATOR|MOLASATOR=$myMOLASATOR|"
-# Modify paths to my custom MOLA dev version in the job template
-sed -i $myMOLA/TEMPLATES/job_template.sh -e "s|$MOLA|$myMOLA|"
-sed -i $myMOLA/TEMPLATES/job_template.sh -e "s|$MOLASATOR|$myMOLASATOR|"
-```
-
-5. Copy MOLA directory on your `sator` space:
-
-```bash
-cp -r /stck/$USER/MOLA /tmp_user/sator/$USER/MOLA
-```
-
-
-Contributing
+From sources
 ------------
 
-For making contributions, please follow these general rules:
-
-0. If never done, please configure your `git` using **your** personal informations:
-
-```bash
-git config --global user.name "Georges Guynemer"
-git config --global user.email georges.guynemer@onera.fr
+Use [git clone](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) command in order to download the source files:
+```
+git clone https://github.com/Luispain/TreeLab
 ```
 
-1. create a *new branch* for your development:
+From a working Python environment, you can compile using [pypi](https://packaging.python.org/en/latest/tutorials/installing-packages/). For example, a user-only installation would
+be done as follows:
 
-```bash
-git branch $USER-mydevname
-git checkout $USER-mydevname
+```
+python3 -m pip --user install .
 ```
 
-2. make your developments, and regularly update your sources onto GitLab:
+* You may use `--user` option on order to install only for current user. 
+* You can use `--prefix` option to specify the directory where the installation will be done
+* You can use `-e` option to install in developer mode; such that any change in `*.py` source files will be immediately take effect
 
-Associate a commit short message to your major modifications:
-```bash
-git commit -m "this is a commit message"
+From stable releases
+--------------------
+
+PyPi
+----
+
+```
+python3 -m pip --user install mola-treelab
 ```
 
-**Important**: Do not commit the files `env_MOLA.sh` and `TEMPLATES/job_template.sh`.
-Before pushing your local branch to the GitLab, use the following command
-to get back these files in their original state:
+Make sure that the installation `bin` directory is seen by your `PATH` environment variable. For exemple, in Linux:
 ```bash
-git checkout env_MOLA.sh && git checkout TEMPLATES/job_template.sh && chmod a+r env_MOLA.sh TEMPLATES/job_template.sh
-```
-You may create an alias for this command in your ``.bash_aliases``.
-
-Update your sources towards GitLab:
-```bash
-git push origin $USER-mydevname
+export PATH=$PATH:~/.local/bin
 ```
 
-3. For each development, update your **sator** sources using:
+Usage
+=====
 
-```bash
-rsync -var /stck/$USER/MOLA/Dev /tmp_user/sator/$USER/MOLA/
+You may use the API of TreeLab using a python script:
+
+```python
+from treelab import cgns
+n = cgns.Node( Name='jamon', Value=['croquetas', 'morcilla'])
+n.save('out.cgns', verbose=True)
 ```
 
-4. Create *preferrably light* new examples using `EXAMPLES` arborescence
-
-5. Before asking for the integration of your new developments into the `master` branch of MOLA, please
-   relaunch the cases contained in `EXAMPLES` *(specially LIGHT ones)* in order to verify that nothing
-   is broken.
-
-6. After `commit` + `push`, request a merge towards `master` branch using GitLab's web interface.
-   You will be automatically notified by e-mail once MOLA's maintainer has integrated your contribution.
-
-7. You can update your own branch sources using master's branch with:
-
-```bash
-git pull origin master
+From command line, you can launch the GUI using `treelab` command, optionnaly followed by the absolute or relative path of the CGNS file to open and optionally using the `-s` option in order to load only the skeleton of the tree, for example:
+```
+treelab out.cgns
 ```
 
-This is specially recommended once your development has been merged by MOLA's maintainer, or after major bug fixes.
+![treelab showing node](doc/readme_node.png)
+
