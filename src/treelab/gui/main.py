@@ -25,10 +25,31 @@ from .. import cgns
 from .. import __version__
 from timeit import default_timer as toc
 
+# import matplotlib
+# matplotlib.use('Qt5Cairo')
 import matplotlib.pyplot as plt
 plt.ion()
 
+
 window_main_title = f'TreeLab ({__version__})'
+treelab_user_config = os.path.expanduser(os.path.join('~', '.treelab'))
+
+def get_user_theme():
+    user_theme = 'Monokai'
+    try:
+        with open(treelab_user_config, 'r') as f:
+            lines = f.readlines()
+            user_theme = lines[0]
+    except:
+        pass
+    for theme in qtvsc.Theme:
+        if theme.value['name'] == user_theme:
+            return theme
+    return qtvsc.Theme.MONOKAI
+            
+    
+            
+
 
 class SnappingCursor:
     """
@@ -230,15 +251,15 @@ class MainWindow(QMainWindow):
 
         self.dock.node_toolbar.addSeparator()
 
-        self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container", self)
-        self.dock.node_toolbar.button_add_plot_x_container.setStatusTip("add node(s) data to X plotter container")
+        self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container (X)", self)
+        self.dock.node_toolbar.button_add_plot_x_container.setStatusTip("add node(s) data to X plotter container (key X)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_x_container)
         key_add_plot_x_container = QtGui.QShortcut(QtGui.QKeySequence('X'), self)
         key_add_plot_x_container.activated.connect(self.add_selected_nodes_to_plot_x_container)
         self.dock.node_toolbar.button_add_plot_x_container.triggered.connect(self.add_selected_nodes_to_plot_x_container)
 
-        self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container", self)
-        self.dock.node_toolbar.button_add_plot_y_container.setStatusTip("add node(s) data to y plotter container")
+        self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container (X)", self)
+        self.dock.node_toolbar.button_add_plot_y_container.setStatusTip("add node(s) data to Y plotter container (key Y)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_y_container)
         key_add_plot_y_container = QtGui.QShortcut(QtGui.QKeySequence('Y'), self)
         key_add_plot_y_container.activated.connect(self.add_selected_nodes_to_plot_y_container)
@@ -249,9 +270,11 @@ class MainWindow(QMainWindow):
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_curve)
         self.dock.node_toolbar.button_add_curve.triggered.connect(self.add_curve)
 
-        self.dock.node_toolbar.button_draw_curves = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/see-curve-16.png") ,"draw all curves", self)
-        self.dock.node_toolbar.button_draw_curves.setStatusTip("draw all curves")
+        self.dock.node_toolbar.button_draw_curves = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/see-curve-16.png") ,"draw all curves (P)", self)
+        self.dock.node_toolbar.button_draw_curves.setStatusTip("draw all curves (key P)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_draw_curves)
+        key_add_draw_curves = QtGui.QShortcut(QtGui.QKeySequence('P'), self)
+        key_add_draw_curves.activated.connect(self.draw_curves)
         self.dock.node_toolbar.button_draw_curves.triggered.connect(self.draw_curves)
 
         self.dock.node_toolbar.setVisible(False)
@@ -328,7 +351,7 @@ class MainWindow(QMainWindow):
 
 
         toolbar = QToolBar("Main toolbar")
-        self.addToolBar(toolbar)
+        self.addToolBar(QtCore.Qt.LeftToolBarArea, toolbar)
 
         button_open = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/folder-horizontal-open.png") ,"open (Ctrl+O)", self)
         button_open.setStatusTip("Open a tree from a file")
@@ -469,6 +492,14 @@ class MainWindow(QMainWindow):
         key_pasteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
         key_pasteNodeTree.activated.connect(self.pasteNodeTree)
 
+        toolbar.addSeparator()
+        button_theme = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.COLOR_MODE,
+                                                      "icon.foreground"),
+                                     "change interface color theme", self)
+        button_theme.setStatusTip("change interface color theme (will persist on next open of treelab)")
+        button_theme.triggered.connect(self.changeTheme)
+        toolbar.addAction(button_theme)
+
         self.plot_x_container = []
         self.plot_y_container = []
         self.curves_container = []
@@ -477,6 +508,43 @@ class MainWindow(QMainWindow):
         self.tree.setFocus()
         if filename: self.reopenTree()
         else: self.updateModel()
+
+        # Center the window on the screen
+        self.center_window()
+
+    def center_window(self):
+        # Get the primary screen's geometry
+        screen_geometry = QtGui.QGuiApplication.primaryScreen().availableGeometry()
+
+        # Calculate the center point of the screen
+        center_point = screen_geometry.center()
+
+        # Calculate the top-left point of the window to center it
+        window_position = self.frameGeometry()
+        window_position.moveCenter(center_point)
+
+        # Set the window's top-left position to the calculated center
+        self.move(window_position.topLeft())
+
+    def changeTheme(self):
+        print('change theme dialog to be implemeted here')
+        dlg = ChangeThemeDialog()
+        if dlg.exec():
+            new_theme = dlg.combo_box.currentText()
+            for theme in qtvsc.Theme:
+                if theme.value['name'] == new_theme:
+                    print(f'changing theme to {new_theme}')
+                    
+                    try:
+                        with open(treelab_user_config,'w') as f:
+                            f.write(new_theme)
+                    except BaseException as e:
+                        print('WARNING: could not edit treelab user config')
+
+                    self.setStyleSheet(qtvsc.load_stylesheet(theme))
+                    return
+
+                
 
 
     def get_x_from_curve_item(self, curve):
@@ -496,12 +564,16 @@ class MainWindow(QMainWindow):
         return node.value(), node.name()
 
     def draw_curves(self):
-        if not self.curves_container: return
-
+        if not self.curves_container: self.add_curve()
 
         self.fig, ax = plt.subplots(1,1,dpi=150)
-        self.fig.canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
-        self.fig.canvas.setFocus()
+
+        # NOTE this lines may break matplotlib Qt backend:
+        # TypeError: setFocusPolicy(self, policy: Qt.FocusPolicy):
+        #       argument 1 has unexpected type 'PySide6.QtCore.Qt.FocusPolicy'
+        # self.fig.canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
+        # self.fig.canvas.setFocus()
+        
         xlabels = []
         ylabels = []
         self.snap_cursors = []
@@ -519,8 +591,7 @@ class MainWindow(QMainWindow):
 
 
             except BaseException as e:
-                err_msg = ''.join(traceback.format_exception(etype=type(e),
-                                    value=e, tb=e.__traceback__))
+                err_msg = ''.join(traceback.format_exception(type(e),e, e.__traceback__))
 
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
@@ -1686,6 +1757,38 @@ class FindNodeDialog(QDialog):
 
         self.setLayout(self.layout)
 
+class ChangeThemeDialog(QDialog):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Change color theme ")
+        self.setGeometry(100, 100, 300, 150)
+
+        # Create a layout for the dialog
+        self.layout = QVBoxLayout(self)
+
+        # Create a label
+        self.label = QLabel("Select an option:")
+
+        # Create a combobox
+        self.combo_box = QComboBox()
+        for theme in qtvsc.Theme:
+            self.combo_box.addItem(theme.value['name'])
+
+        # Add the label and combobox to the layout
+        self.layout.addWidget(self.label)
+        self.layout.addWidget(self.combo_box)
+
+        # Create a button box to hold OK and Cancel buttons
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        button_box = QDialogButtonBox(QBtn)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        self.layout.addWidget(button_box)
+
+    def get_selected_option(self):
+        # Get the selected option from the combobox
+        return self.combo_box.currentText()
 
 class NewNodeDialog(QDialog):
     def __init__(self, NodeParentLabel):
@@ -1729,13 +1832,15 @@ def launch():
 
     app = QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
-    app.setStyleSheet(qtvsc.load_stylesheet(qtvsc.Theme.DARK_VS))
+    app.setStyleSheet(qtvsc.load_stylesheet(get_user_theme()))
     print('filename=',filename)
     print('only_skeleton=',only_skeleton, " (use -s to set to True)")
     MW = MainWindow( filename, only_skeleton )
-    MW.resize(650, 800)
+    MW.resize(650, 815)
     MW.show()
     sys.exit( app.exec_() )
+
+
 
 if __name__ == "__main__" :
     launch( sys.argv )

@@ -23,8 +23,10 @@ classifiers = [
 dependencies = [
   "numpy>=1.21.0",
   "h5py>=3.7.0",
-  "matplotlib>=3.7.0",
-  "pyside6",
+  'matplotlib>3.6.2; python_version >= "3.8"',
+  'pyside6<6.4.0; python_version < "3.8"',
+  'pyside6>=6.4.0; python_version >= "3.8"',
+  'pyqt5; python_version < "3.8"', # required for compatibility with matplotlib backend
   "qtvscodestyle",
 ]
 
