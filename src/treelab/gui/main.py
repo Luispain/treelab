@@ -142,35 +142,38 @@ from PySide6.QtWidgets import (
 
 
 GUIpath = os.path.dirname(os.path.realpath(__file__))
-print(GUIpath)
 sep = os.path.sep
-# QTreeView {{
-#     background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
-# }}
-style=f"""
+path_vline = os.path.join(GUIpath,'style','stylesheet-vline.png')
+path_more = os.path.join(GUIpath,'style','stylesheet-branch-more.png')
+path_end = os.path.join(GUIpath,'style','stylesheet-branch-end.png')
+style = f"""
 QTreeView::branch:has-siblings:!adjoins-item {{
-    border-image: url({GUIpath}{sep}style{sep}stylesheet-vline.png);
+    border-image: url({path_vline}) 0;
 }}
 
 QTreeView::branch:has-siblings:adjoins-item {{
-    border-image: url({GUIpath}{sep}style{sep}stylesheet-branch-more.png);
+    border-image: url({path_more}) 0;
 }}
 
 QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
-    border-image: url({GUIpath}{sep}style{sep}stylesheet-branch-end.png) 0;
+    border-image: url({path_end}) 0;
 }}
 """
-
+style = style.replace('\\','/') # curiously required by Windows
+# print(style)
+# QTreeView {{
+#     background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
+# }}
 # QTreeView::branch:has-children:!has-siblings:closed,
 # QTreeView::branch:closed:has-children:has-siblings {{
 #         border-image: none;
-#         image: url({GUIpath}{sep}style{sep}stylesheet-branch-closed.png);
+#         image: url(stylesheet-branch-closed.png);
 # }}
 
 # QTreeView::branch:open:has-children:!has-siblings,
 # QTreeView::branch:open:has-children:has-siblings  {{
 #         border-image: none;
-#         image: url({GUIpath}{sep}style{sep}stylesheet-branch-open.png);
+#         image: url(stylesheet-branch-open.png);
 # }}
 
 class MainWindow(QMainWindow):
@@ -1478,16 +1481,22 @@ class MainWindow(QMainWindow):
 
         node = MainItem.node_cgns
         MainItem.isStyleCGNSbeingModified = True
-        # font = MainItem.font()
-        # font.setPointSize( int(self.fontPointSize) )
-        # font.setBold(False)
-        # font.setItalic(False)
+
+        # from ChatGPT
+        # font = QtGui.QFont()
+        # font.setWeight(QtGui.QFont.Bold)
+        # font.setItalic(True)
+        # MainItem.setFont(font)
+
+        font = MainItem.font()
+        font.setPointSize( int(self.fontPointSize) )
+        font.setBold(False)
+        font.setItalic(False)
         # brush = QtGui.QBrush()
         # brush.setColor(QtGui.QColor("#cccccc")) # tree default color
-        # pointSize = font.pointSize()
         iconSize = int(self.fontPointSize*1.333)
         self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
-        MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.5),int(iconSize*1.5)))
+        MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.75),int(iconSize*1.75)))
         MainItem.setIcon(QtGui.QIcon())
 
         node_value = node.value()
@@ -1495,18 +1504,18 @@ class MainWindow(QMainWindow):
 
         if node_type == 'CGNSTree_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/tree")
-            # font.setBold(True)
+            font.setBold(True)
         elif not MainItem.parent():
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/tree-red")
-            # font.setBold(True)
+            font.setBold(True)
             # brush.setColor(QtGui.QColor("red"))
         elif node_type == 'Zone_t':
             putIcon(GUIpath+"/icons/icons8/zone-2D.png")
-            # font.setBold(True)
+            font.setBold(True)
             # brush.setColor(QtGui.QColor("#83acc9"))
         elif node_type == 'CGNSBase_t':
-            # font.setBold(True)
-            # font.setItalic(True)
+            font.setBold(True)
+            font.setItalic(True)
             # brush.setColor(QtGui.QColor("#6cb369"))
             putIcon(GUIpath+"/icons/icons8/icons8-box-32.png")
         elif node_type == 'GridCoordinates_t':
@@ -1519,45 +1528,45 @@ class MainWindow(QMainWindow):
             putIcon(GUIpath+"/icons/icons8/icons8-z-coordinate-16")
         elif node_type == 'FlowSolution_t':
             putIcon(GUIpath+"/icons/OwnIcons/field-16")
-        # elif node_type in ('CGNSLibraryVersion_t','ZoneType_t'):
-        #     font.setItalic(True)
+        elif node_type in ('CGNSLibraryVersion_t','ZoneType_t'):
+            font.setItalic(True)
         elif node_type == 'Link_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/external.png")
-            # font.setBold(True)
-            # font.setItalic(True)
+            font.setBold(True)
+            font.setItalic(True)
             # brush.setColor(QtGui.QColor("blue"))
         elif node_type in ('Family_t','FamilyName_t','FamilyBC_t','AdditionalFamilyName_t'):
             putIcon(GUIpath+"/icons/icons8/icons8-famille-homme-femme-26.png")
-            # font.setItalic(True)
+            font.setItalic(True)
             # brush = QtGui.QBrush()
             # brush.setColor(QtGui.QColor("#f59e84"))
         elif node_type == 'ConvergenceHistory_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/system-monitor.png")
-            # font.setItalic(True)
+            font.setItalic(True)
         elif node_type == 'ZoneGridConnectivity_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/plug-disconnect.png")
         elif node_type == 'ReferenceState_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/script-attribute-r.png")
-            # font.setItalic(True)
+            font.setItalic(True)
         elif node_type == 'FlowEquationSet_t':
             putIcon(GUIpath+"/icons/icons8/Sigma.png")
-            # font.setItalic(True)
+            font.setItalic(True)
         elif node_type == 'UserDefinedData_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/user-silhouette.png")
-            # font.setItalic(True)
+            font.setItalic(True)
             # brush.setColor(QtGui.QColor("#bfbfbf"))
         elif node_type == 'ZoneBC_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/border-left.png")
 
         if isinstance(node_value,str) and node_value == '_skeleton':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle-double.png")
-            # font.setBold(True)
-            # font.setItalic(True)
+            font.setBold(True)
+            font.setItalic(True)
             # brush.setColor(QtGui.QColor("orange"))
 
 
         # MainItem.setForeground(brush)
-        # MainItem.setFont(font)
+        MainItem.setFont(font)
         MainItem.isStyleCGNSbeingModified = False
 
     def updateModel(self):
