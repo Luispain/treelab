@@ -1,4 +1,5 @@
 *.pyc
+*.odg
 __pycache__
 *.dat
 *.cgns

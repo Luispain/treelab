@@ -20,6 +20,7 @@
 import traceback
 import sys, os, time
 import numpy as np
+import qtvscodestyle as qtvsc
 from .. import cgns
 from .. import __version__
 from timeit import default_timer as toc
@@ -109,7 +110,7 @@ class SnappingCursor:
             self.ax.figure.canvas.draw()
 
 
-from PySide6 import Qt, QtGui, QtWidgets, QtCore
+from PySide6 import QtGui, QtWidgets, QtCore
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -141,37 +142,36 @@ from PySide6.QtWidgets import (
 
 
 GUIpath = os.path.dirname(os.path.realpath(__file__))
-
-style="""QTreeView {{
-    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
-}}
-
+print(GUIpath)
+sep = os.path.sep
+# QTreeView {{
+#     background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
+# }}
+style=f"""
 QTreeView::branch:has-siblings:!adjoins-item {{
-    border-image: url({GUIpath}{sep}style{sep}stylesheet-vline.png) 0;
+    border-image: url({GUIpath}{sep}style{sep}stylesheet-vline.png);
 }}
 
 QTreeView::branch:has-siblings:adjoins-item {{
-    border-image: url({GUIpath}{sep}style{sep}stylesheet-branch-more.png) 0;
+    border-image: url({GUIpath}{sep}style{sep}stylesheet-branch-more.png);
 }}
 
 QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
     border-image: url({GUIpath}{sep}style{sep}stylesheet-branch-end.png) 0;
 }}
+"""
 
-QTreeView::branch:has-children:!has-siblings:closed,
-QTreeView::branch:closed:has-children:has-siblings {{
-        border-image: none;
-        image: url({GUIpath}{sep}style{sep}stylesheet-branch-closed.png);
-}}
+# QTreeView::branch:has-children:!has-siblings:closed,
+# QTreeView::branch:closed:has-children:has-siblings {{
+#         border-image: none;
+#         image: url({GUIpath}{sep}style{sep}stylesheet-branch-closed.png);
+# }}
 
-QTreeView::branch:open:has-children:!has-siblings,
-QTreeView::branch:open:has-children:has-siblings  {{
-        border-image: none;
-        image: url({GUIpath}{sep}style{sep}stylesheet-branch-open.png);
-}}
-
-""".format(GUIpath=GUIpath, sep=os.path.sep)
-
+# QTreeView::branch:open:has-children:!has-siblings,
+# QTreeView::branch:open:has-children:has-siblings  {{
+#         border-image: none;
+#         image: url({GUIpath}{sep}style{sep}stylesheet-branch-open.png);
+# }}
 
 class MainWindow(QMainWindow):
     def __init__(self, filename=None, only_skeleton=False, *args, **kwargs):
@@ -230,11 +230,15 @@ class MainWindow(QMainWindow):
         self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container", self)
         self.dock.node_toolbar.button_add_plot_x_container.setStatusTip("add node(s) data to X plotter container")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_x_container)
+        key_add_plot_x_container = QtGui.QShortcut(QtGui.QKeySequence('X'), self)
+        key_add_plot_x_container.activated.connect(self.add_selected_nodes_to_plot_x_container)
         self.dock.node_toolbar.button_add_plot_x_container.triggered.connect(self.add_selected_nodes_to_plot_x_container)
 
         self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container", self)
         self.dock.node_toolbar.button_add_plot_y_container.setStatusTip("add node(s) data to y plotter container")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_y_container)
+        key_add_plot_y_container = QtGui.QShortcut(QtGui.QKeySequence('Y'), self)
+        key_add_plot_y_container.activated.connect(self.add_selected_nodes_to_plot_y_container)
         self.dock.node_toolbar.button_add_plot_y_container.triggered.connect(self.add_selected_nodes_to_plot_y_container)
 
         self.dock.node_toolbar.button_add_curve = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/add-curve-16.png") ,"add curve to plotter", self)
@@ -530,11 +534,13 @@ class MainWindow(QMainWindow):
 
 
     def add_curve(self):
+        size_policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed,
+                                            QtWidgets.QSizePolicy.Fixed)
 
         curve = QWidget(self)
         curve.setLayout(QHBoxLayout())
         Xlabel = QLabel('X=')
-        Xlabel.setSizePolicy(QtWidgets.QSizePolicy.Fixed, 16)
+        Xlabel.setSizePolicy(size_policy)
         curve.layout().addWidget(Xlabel)
         curve.Xchoser = QComboBox()
         curve.Xchoser.addItems( self.plot_x_container )
@@ -543,7 +549,7 @@ class MainWindow(QMainWindow):
 
 
         Ylabel = QLabel('Y=')
-        Ylabel.setSizePolicy(QtWidgets.QSizePolicy.Fixed, 16)
+        Ylabel.setSizePolicy(size_policy)
         curve.layout().addWidget(Ylabel)
         curve.Ychoser = QComboBox()
         curve.Ychoser.addItems( self.plot_y_container )
@@ -551,7 +557,7 @@ class MainWindow(QMainWindow):
         curve.layout().addWidget(curve.Ychoser)
 
         button_remove_curve = QPushButton()
-        button_remove_curve.setSizePolicy(QtWidgets.QSizePolicy.Fixed, 16)
+        button_remove_curve.setSizePolicy(size_policy)
         pixmap = QtGui.QPixmap(GUIpath+"/icons/OwnIcons/remove-curve-16.png")
         ButtonIcon = QtGui.QIcon(pixmap)
         button_remove_curve.setIcon(ButtonIcon)
@@ -1472,14 +1478,14 @@ class MainWindow(QMainWindow):
 
         node = MainItem.node_cgns
         MainItem.isStyleCGNSbeingModified = True
-        font = MainItem.font()
-        font.setPointSize( int(self.fontPointSize) )
-        font.setBold(False)
-        font.setItalic(False)
-        brush = QtGui.QBrush()
-        brush.setColor(QtGui.QColor("white"))
-        pointSize = font.pointSize()
-        iconSize = int(pointSize*1.333)
+        # font = MainItem.font()
+        # font.setPointSize( int(self.fontPointSize) )
+        # font.setBold(False)
+        # font.setItalic(False)
+        # brush = QtGui.QBrush()
+        # brush.setColor(QtGui.QColor("#cccccc")) # tree default color
+        # pointSize = font.pointSize()
+        iconSize = int(self.fontPointSize*1.333)
         self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
         MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.5),int(iconSize*1.5)))
         MainItem.setIcon(QtGui.QIcon())
@@ -1489,19 +1495,19 @@ class MainWindow(QMainWindow):
 
         if node_type == 'CGNSTree_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/tree")
-            font.setBold(True)
+            # font.setBold(True)
         elif not MainItem.parent():
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/tree-red")
-            font.setBold(True)
-            brush.setColor(QtGui.QColor("red"))
+            # font.setBold(True)
+            # brush.setColor(QtGui.QColor("red"))
         elif node_type == 'Zone_t':
             putIcon(GUIpath+"/icons/icons8/zone-2D.png")
-            font.setBold(True)
-            brush.setColor(QtGui.QColor("#83acc9"))
+            # font.setBold(True)
+            # brush.setColor(QtGui.QColor("#83acc9"))
         elif node_type == 'CGNSBase_t':
-            font.setBold(True)
-            font.setItalic(True)
-            brush.setColor(QtGui.QColor("#6cb369"))
+            # font.setBold(True)
+            # font.setItalic(True)
+            # brush.setColor(QtGui.QColor("#6cb369"))
             putIcon(GUIpath+"/icons/icons8/icons8-box-32.png")
         elif node_type == 'GridCoordinates_t':
             putIcon(GUIpath+"/icons/icons8/icons8-coordinate-system-16.png")
@@ -1513,45 +1519,45 @@ class MainWindow(QMainWindow):
             putIcon(GUIpath+"/icons/icons8/icons8-z-coordinate-16")
         elif node_type == 'FlowSolution_t':
             putIcon(GUIpath+"/icons/OwnIcons/field-16")
-        elif node_type in ('CGNSLibraryVersion_t','ZoneType_t'):
-            font.setItalic(True)
+        # elif node_type in ('CGNSLibraryVersion_t','ZoneType_t'):
+        #     font.setItalic(True)
         elif node_type == 'Link_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/external.png")
-            font.setBold(True)
-            font.setItalic(True)
-            brush.setColor(QtGui.QColor("blue"))
+            # font.setBold(True)
+            # font.setItalic(True)
+            # brush.setColor(QtGui.QColor("blue"))
         elif node_type in ('Family_t','FamilyName_t','FamilyBC_t','AdditionalFamilyName_t'):
             putIcon(GUIpath+"/icons/icons8/icons8-famille-homme-femme-26.png")
-            font.setItalic(True)
-            brush = QtGui.QBrush()
-            brush.setColor(QtGui.QColor("#f59e84"))
+            # font.setItalic(True)
+            # brush = QtGui.QBrush()
+            # brush.setColor(QtGui.QColor("#f59e84"))
         elif node_type == 'ConvergenceHistory_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/system-monitor.png")
-            font.setItalic(True)
+            # font.setItalic(True)
         elif node_type == 'ZoneGridConnectivity_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/plug-disconnect.png")
         elif node_type == 'ReferenceState_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/script-attribute-r.png")
-            font.setItalic(True)
+            # font.setItalic(True)
         elif node_type == 'FlowEquationSet_t':
             putIcon(GUIpath+"/icons/icons8/Sigma.png")
-            font.setItalic(True)
+            # font.setItalic(True)
         elif node_type == 'UserDefinedData_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/user-silhouette.png")
-            font.setItalic(True)
-            brush.setColor(QtGui.QColor("#bfbfbf"))
+            # font.setItalic(True)
+            # brush.setColor(QtGui.QColor("#bfbfbf"))
         elif node_type == 'ZoneBC_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/border-left.png")
 
         if isinstance(node_value,str) and node_value == '_skeleton':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle-double.png")
-            font.setBold(True)
-            font.setItalic(True)
-            brush.setColor(QtGui.QColor("orange"))
+            # font.setBold(True)
+            # font.setItalic(True)
+            # brush.setColor(QtGui.QColor("orange"))
 
 
-        MainItem.setForeground(brush)
-        MainItem.setFont(font)
+        # MainItem.setForeground(brush)
+        # MainItem.setFont(font)
         MainItem.isStyleCGNSbeingModified = False
 
     def updateModel(self):
@@ -1618,7 +1624,7 @@ class TableWithCopy(QTableWidget):
                     copy_text += '\n'
                 else:
                     copy_text += '\t'
-            Qt.QApplication.clipboard().setText(copy_text)
+            QApplication.clipboard().setText(copy_text)
 
         elif event.key() == QtCore.Qt.Key_V and (event.modifiers() & QtCore.Qt.ControlModifier):
             pasting_cells = self.selectedIndexes()
@@ -1702,7 +1708,7 @@ class NewNodeDialog(QDialog):
 
 
 def launch():
-    print("tata")
+    
     print(sys.argv)
     args = sys.argv[1:] 
 
@@ -1714,6 +1720,7 @@ def launch():
 
     app = QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
+    app.setStyleSheet(qtvsc.load_stylesheet(qtvsc.Theme.DARK_VS))
     print('filename=',filename)
     print('only_skeleton=',only_skeleton, " (use -s to set to True)")
     MW = MainWindow( filename, only_skeleton )
