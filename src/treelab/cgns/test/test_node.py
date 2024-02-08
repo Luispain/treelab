@@ -1,7 +1,7 @@
 import os
 import pprint
 import numpy as np
-import mola.cgns as cgns
+from treelab import cgns
 
 def test_init1():
     node = cgns.Node()

@@ -1,7 +1,7 @@
 import os
 import pprint
 import numpy as np
-import mola.cgns as cgns
+from treelab import cgns
 
 def get_cart():
     x, y, z = np.meshgrid( np.linspace(0,1,3),

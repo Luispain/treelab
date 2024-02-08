@@ -1034,7 +1034,7 @@ class Node(list):
 
         return Container
 
-    def getParameters(self, ContainerName):
+    def getParameters(self, ContainerName, transform_numpy_scalars=False):
         Container = self.get( Name=ContainerName, Depth=1 )
         ParamsDict = dict()
         ParamsList = []
@@ -1052,7 +1052,8 @@ class Node(list):
                     # TODO For some applications, we need to get scalars, not 1 sized arrays
                     # The following lines do that, but it is risky modifying types
                     v = param.value()
-                    if isinstance(v, np.ndarray) and v.size == 1:
+                    if transform_numpy_scalars and isinstance(v, np.ndarray) \
+                                               and v.size == 1:
                         v = v[0]
                         if isinstance(v, np.int32):
                             v = int(v)
