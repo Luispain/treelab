@@ -120,8 +120,8 @@ class Node(list):
 
     ::
 
-        import mola_v2.cgns as M
-        node = M.Node()
+        from treelab import cgns
+        node = cgns.Node()
         print(node)
         # >>> ['Node', None, [], 'DataArray_t']
 
@@ -131,8 +131,8 @@ class Node(list):
 
     ::
 
-        import mola_v2.cgns as M
-        node = M.Node(Name='MyName', Value=[1,2,3,4], Type='DataArray')
+        from treelab import cgns
+        node = cgns.Node(Name='MyName', Value=[1,2,3,4], Type='DataArray')
         print(node)
         # >>> ['MyName', array([1, 2, 3, 4], dtype=int32), [], 'DataArray_t']
 
@@ -143,8 +143,8 @@ class Node(list):
     ::
 
         import numpy as np
-        import mola_v2.cgns as M
-        node = M.Node( ['name', np.array([0,1,2]), [], 'DataArray_t'] )
+        from treelab import cgns
+        node = cgns.Node( ['name', np.array([0,1,2]), [], 'DataArray_t'] )
         print(node)
         # >>> ['name', array([0, 1, 2]), [], 'DataArray_t']
 
@@ -156,8 +156,8 @@ class Node(list):
     ::
 
         import numpy as np
-        import mola_v2.cgns as M
-        node = M.castNode( ['name', np.array([0,1,2]), [], 'DataArray_t'] )
+        from treelab import cgns
+        node = cgns.castNode( ['name', np.array([0,1,2]), [], 'DataArray_t'] )
         print(node)
         # >>> ['name', array([0, 1, 2]), [], 'DataArray_t']
 
@@ -230,11 +230,11 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
+            from treelab import cgns
 
             # create a node and attach it to another node 
-            a = M.Node( Name='TheParent')
-            b = M.Node( Name='TheChild', Parent=a )
+            a = cgns.Node( Name='TheParent')
+            b = cgns.Node( Name='TheChild', Parent=a )
 
             # show the actual hierarchy
             a.printPaths()
@@ -274,11 +274,11 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
+            from treelab import cgns
 
             # create a node and attach it to another node 
-            a = M.Node( Name='TheParent')
-            b = M.Node( Name='TheChild', Parent=a )
+            a = cgns.Node( Name='TheParent')
+            b = cgns.Node( Name='TheChild', Parent=a )
 
             path = b.path() # get the path
             print( path ) 
@@ -311,8 +311,8 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
-            n = M.Node( Name='jamon' )
+            from treelab import cgns
+            n = cgns.Node( Name='jamon' )
             n.save('out.cgns', verbose=True)
             # >>> saving out.cgns ... ok
 
@@ -364,8 +364,8 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
-            n = M.Node( Name='tortilla' )
+            from treelab import cgns
+            n = cgns.Node( Name='tortilla' )
             print( n.name() )
             # >>> tortilla
 
@@ -384,8 +384,8 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
-            n = M.Node( Name='croquetas' )
+            from treelab import cgns
+            n = cgns.Node( Name='croquetas' )
             n.printName()
             # >>> croquetas
 
@@ -442,9 +442,9 @@ class Node(list):
         
         ::
 
-            import mola_v2.cgns as M
+            from treelab import cgns
 
-            node = M.Node( Value='jamon' )
+            node = cgns.Node( Value='jamon' )
 
             value_str = node.value() # will return a readable str
             print(value_str)
@@ -463,9 +463,9 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
+            from treelab import cgns
 
-            node = M.Node( Value='jamon tortilla croquetas' )
+            node = cgns.Node( Value='jamon tortilla croquetas' )
 
             value_str = node.value() # will return a readable list of str
             print(value_str)
@@ -499,7 +499,7 @@ class Node(list):
 
         ::
 
-            import mola_v2.cgns as M
+            from treelab import cgns
             import numpy as np 
 
             # create a multi-dimensional array to be attributed to several nodes
@@ -509,8 +509,8 @@ class Node(list):
                                [6,7,8]], order='F' )
 
             # create our two nodes, and attribute their values to our array
-            jamon    = M.Node( Name='jamon', Value=array )
-            tortilla = M.Node( Name='tortilla', Value=array )
+            jamon    = cgns.Node( Name='jamon', Value=array )
+            tortilla = cgns.Node( Name='tortilla', Value=array )
 
             # get the value of jamon
             jamon_value = jamon.value() # in this case, the same as jamon[1]

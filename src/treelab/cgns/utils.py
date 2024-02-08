@@ -140,7 +140,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
         ::
 
           import mola_v2.cgns  as M
-          t = M.load('myfile.cgns')
+          t = cgns.load('myfile.cgns')
 
         will open the file, including :py:class:`numpy.ndarray` contained in *DataArray_t* nodes.
         If you want to open a file without loading *DataArray_t* data, then you
@@ -149,7 +149,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
         ::
 
           import mola_v2.cgns  as M
-          t = M.load('myfile.cgns', only_skeleton=True)
+          t = cgns.load('myfile.cgns', only_skeleton=True)
 
 
     '''
@@ -243,10 +243,10 @@ def save(data, *args, **kwargs):
 
     ::
 
-        n = M.Node() # create a Node
-        M.save( n, 'out.cgns' )   # save it into a file named out.cgns
+        n = cgns.Node() # create a Node
+        cgns.save( n, 'out.cgns' )   # save it into a file named out.cgns
 
-    Please note that in this case :python:`M.save(n, 'out.cgns')` is 
+    Please note that in this case :python:`cgns.save(n, 'out.cgns')` is 
     equivalent to :python:`n.save('out.cgns')`.
 
     Let us make things just a little bit more complicated. We create several
@@ -254,9 +254,9 @@ def save(data, *args, **kwargs):
 
     ::
 
-        n1 = M.Node()  # create first node
-        n2 = M.Node()  # create second node  
-        M.save( [n1, n2], 'out.cgns' ) # save all into a file using a list
+        n1 = cgns.Node()  # create first node
+        n2 = cgns.Node()  # create second node  
+        cgns.save( [n1, n2], 'out.cgns' ) # save all into a file using a list
 
 
     and both nodes are written, producing the following tree structure:
@@ -280,9 +280,9 @@ def save(data, *args, **kwargs):
 
     ::
 
-        n1 = M.Node()  # create first node using MOLA
+        n1 = cgns.Node()  # create first node using MOLA
         n2 = ['MyNode',None,[],'DataArray_t']  # create second node using a standard pycgns list
-        M.save( [n1, n2], 'out.cgns' ) # save all into a file using a list
+        cgns.save( [n1, n2], 'out.cgns' ) # save all into a file using a list
 
     Which produces the following tree structure:
 
@@ -301,10 +301,10 @@ def save(data, *args, **kwargs):
     ::
 
         # create a node named 'NodeA'
-        nA = M.Node(Name='NodeA') 
+        nA = cgns.Node(Name='NodeA') 
 
         # create 3 children nodes using unique names and attach them to nA
-        for _ in range(3): M.Node(Parent=nA, override_brother_by_name=False) 
+        for _ in range(3): cgns.Node(Parent=nA, override_brother_by_name=False) 
 
         # let us make a copy of nA and rename it
         nB = nA.copy()
@@ -314,8 +314,8 @@ def save(data, *args, **kwargs):
         first_list = [nA, nB]
 
         # We can repeat the previous operations in order to declare a second list
-        nC = M.Node(Name='NodeC') 
-        for _ in range(3): M.Node(Parent=nC, override_brother_by_name=False) 
+        nC = cgns.Node(Name='NodeC') 
+        for _ in range(3): cgns.Node(Parent=nC, override_brother_by_name=False) 
 
         nD = nC.copy()
         nD.setName('NodeD')
@@ -324,7 +324,7 @@ def save(data, *args, **kwargs):
         # Now we have two lists of nodes (which includes children), and we want
         # to save all this information into a file. Then, we can simply do:
 
-        M.save( [ first_list, second_list ], 'out.cgns')
+        cgns.save( [ first_list, second_list ], 'out.cgns')
 
     which will produce a tree with following structure:
 
@@ -360,11 +360,11 @@ def save(data, *args, **kwargs):
     ::
         
         # equivalent calls:
-        M.save( [nA, nB, nC, nD], 'out.cgns') 
-        M.save( [ [nA, nB], [nC, nD]], 'out.cgns') 
-        M.save( [nA, [nB], nC, nD], 'out.cgns') 
-        M.save( [nA, nB, nC, [[[nD]]]], 'out.cgns') 
-        M.save( [nA, [nB], [nC, [[nD]]]], 'out.cgns') 
+        cgns.save( [nA, nB, nC, nD], 'out.cgns') 
+        cgns.save( [ [nA, nB], [nC, nD]], 'out.cgns') 
+        cgns.save( [nA, [nB], nC, nD], 'out.cgns') 
+        cgns.save( [nA, nB, nC, [[[nD]]]], 'out.cgns') 
+        cgns.save( [nA, [nB], [nC, [[nD]]]], 'out.cgns') 
         ...
 
 
@@ -418,11 +418,11 @@ def merge(*data1, **data2 ):
     ::
 
         import mola_v2.cgns  as M
-        a = M.Zone(Name='A')
-        b = M.Zone(Name='B')
-        c = M.Zone(Name='C')
+        a = cgns.Zone(Name='A')
+        b = cgns.Zone(Name='B')
+        c = cgns.Zone(Name='C')
 
-        t = M.merge(a,b,c)
+        t = cgns.merge(a,b,c)
 
     will produce the following tree structure:
 
@@ -451,11 +451,11 @@ def merge(*data1, **data2 ):
     ::
 
         import mola_v2.cgns  as M
-        a = M.Zone(Name='A')
-        b = M.Zone(Name='B')
-        c = M.Zone(Name='C')
+        a = cgns.Zone(Name='A')
+        b = cgns.Zone(Name='B')
+        c = cgns.Zone(Name='C')
 
-        t = M.merge( FirstBase=a, SecondBase=[b, c] )
+        t = cgns.merge( FirstBase=a, SecondBase=[b, c] )
 
     which will produce a :py:class:`~mola_v2.cgns.tree.Tree` with following structure:
 
@@ -475,12 +475,12 @@ def merge(*data1, **data2 ):
         In Python you can replace a call of pairs of ``keyword=value`` with 
         an unpacking of a :py:class:`dict`. In other terms, this:
 
-        >>> t = M.merge( FirstBase=a, SecondBase=[b, c] )
+        >>> t = cgns.merge( FirstBase=a, SecondBase=[b, c] )
 
         is equivalent to
 
         >>> myDict = dict(FirstBase=a, SecondBase=[b, c])
-        >>> t = M.merge( **myDict )
+        >>> t = cgns.merge( **myDict )
 
         note the use of the :py:class:`dict` unpacking operator :python:`**`
 
@@ -488,12 +488,12 @@ def merge(*data1, **data2 ):
         In Python you can replace a call of comma-separated arguments with 
         an unpacking of a :py:class:`list`. In other terms, this:
 
-        >>> t = M.merge( a, b, c )
+        >>> t = cgns.merge( a, b, c )
 
         is equivalent to
 
         >>> myList = [ a, b, c ]
-        >>> t = M.merge( *myList )
+        >>> t = cgns.merge( *myList )
 
         note the use of the :py:class:`list` unpacking operator :python:`*`
 
@@ -527,7 +527,7 @@ def getZones( data ):
     .. note::
         this function makes literally:
 
-        >>> zones = M.merge(data).getZones()
+        >>> zones = cgns.merge(data).getZones()
 
     Parameters
     ----------
@@ -552,19 +552,19 @@ def getZones( data ):
         import mola_v2.cgns  as M
 
         # arbitrarily create an heterogeneous list containing zones
-        a = M.Zone(Name='A')
-        b = M.Zone(Name='B')
-        c = M.Zone(Name='C')
+        a = cgns.Zone(Name='A')
+        b = cgns.Zone(Name='B')
+        c = cgns.Zone(Name='C')
         some_zones = [a, [b,c] ]
 
         # arbitrarily create a tree containing zones (possibly in several Bases)
-        t = M.Tree( FirstBase=[M.Zone(Name='D'),M.Zone(Name='E')],
-                   SecondBase=[M.Zone(Name='A'),M.Zone(Name='F')])
+        t = cgns.Tree( FirstBase=[cgns.Zone(Name='D'),cgns.Zone(Name='E')],
+                   SecondBase=[cgns.Zone(Name='A'),cgns.Zone(Name='F')])
 
         # create a container including all data
         container = some_zones + [t]
 
-        zones = M.getZones( container )
+        zones = cgns.getZones( container )
         for z in zones: print(z.name())
 
     This will produce:
@@ -595,7 +595,7 @@ def getBases( data ):
     .. note::
         this function makes literally:
 
-        >>> bases = M.merge(data).getBases()
+        >>> bases = cgns.merge(data).getBases()
 
     Parameters
     ----------
@@ -620,19 +620,19 @@ def getBases( data ):
         import mola_v2.cgns  as M
 
         # arbitrarily create an heterogeneous list containing bases
-        a = M.Base(Name='BaseA')
-        b = M.Base(Name='BaseB')
-        c = M.Base(Name='BaseC')
+        a = cgns.Base(Name='BaseA')
+        b = cgns.Base(Name='BaseB')
+        c = cgns.Base(Name='BaseC')
         some_bases = [a, [b,c] ]
 
         # arbitrarily create a tree containing bases
-        t = M.Tree( FirstBase=[M.Zone(Name='D'),M.Zone(Name='E')],
-                    SecondBase=[M.Zone(Name='A'),M.Zone(Name='F')])
+        t = cgns.Tree( FirstBase=[cgns.Zone(Name='D'),cgns.Zone(Name='E')],
+                    SecondBase=[cgns.Zone(Name='A'),cgns.Zone(Name='F')])
 
         # create a container including all data
         container = some_bases + [t]
 
-        bases = M.getBases( container )
+        bases = cgns.getBases( container )
         for base in bases: print(base.name())
 
     This will produce:
@@ -694,14 +694,14 @@ def useEquation(data, *args, **kwargs):
         import mola_v2.cgns  as M
 
 
-        zoneA = M.Mesh.Line( Name='zoneA', N=2 )
-        zoneB = M.Mesh.Line( Name='zoneB', N=4 )
-        zoneC = M.Mesh.Line( Name='zoneC', N=6 )
+        zoneA = cgns.Mesh.Line( Name='zoneA', N=2 )
+        zoneB = cgns.Mesh.Line( Name='zoneB', N=4 )
+        zoneC = cgns.Mesh.Line( Name='zoneC', N=6 )
 
-        tree1 = M.Tree(Base1=[zoneA, zoneB])
-        tree2 = M.Tree(Base2=[zoneC])
+        tree1 = cgns.Tree(Base1=[zoneA, zoneB])
+        tree2 = cgns.Tree(Base2=[zoneC])
 
-        M.useEquation( [tree1, tree2], '{field} = 12.0' )
+        cgns.useEquation( [tree1, tree2], '{field} = 12.0' )
 
         for zone in zoneA, zoneB, zoneC:
             print(zone.name()+' has field '+str(zone.field('field')))
@@ -767,11 +767,11 @@ def newZoneFromArrays(Name, ArraysNames, Arrays):
         field = x*y
 
         # create the new zone using numpy arrays of coordinates and field
-        zone = M.newZoneFromArrays( 'block', ['x','y','z','field'],
+        zone = cgns.newZoneFromArrays( 'block', ['x','y','z','field'],
                                              [ x,  y,  z,  field ])
 
         # save result
-        M.save(zone,'out.cgns')
+        cgns.save(zone,'out.cgns')
 
     
     .. note::
@@ -853,10 +853,10 @@ def newZoneFromDict(Name, DictWithArrays):
         field = x*y
 
         # create the new zone using numpy arrays of coordinates and field
-        zone = M.newZoneFromDict( 'block', dict(x=x, y=y, z=z, filed=field) )
+        zone = cgns.newZoneFromDict( 'block', dict(x=x, y=y, z=z, filed=field) )
 
         # save result
-        M.save(zone,'out.cgns')
+        cgns.save(zone,'out.cgns')
 
 
     .. note::
