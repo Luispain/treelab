@@ -139,7 +139,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QToolBar,
     QStatusBar,
-    QCheckBox,
+    QTabWidget,
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
@@ -160,7 +160,6 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QMessageBox,
 )
-
 
 GUIpath = os.path.dirname(os.path.realpath(__file__))
 sep = os.path.sep
@@ -198,7 +197,7 @@ style = style.replace('\\','/') # curiously required by Windows
 # }}
 
 class MainWindow(QMainWindow):
-    def __init__(self, filename=None, only_skeleton=False, *args, **kwargs):
+    def __init__(self, filenames=[], only_skeleton=False, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
         self.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
@@ -319,37 +318,17 @@ class MainWindow(QMainWindow):
         self.dock.VLayout.layout().addWidget(self.table)
 
 
-        self.tree = QTreeView(self)
-        self.tree.model = QtGui.QStandardItemModel()
-        # self.tree.setMouseTracking(True)
-        self.tree.setHeaderHidden(True)
-        self.tree.setModel(self.tree.model)
-        self.tree.setStyleSheet(style)
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.tree.setDragDropMode(QAbstractItemView.DragDrop)
-        self.tree.setDragEnabled(True)
-        self.tree.setAcceptDrops(True)
-        self.tree.setDropIndicatorShown(True)
-        self.tree.setDefaultDropAction(QtCore.Qt.MoveAction)
-        self.selectedNodesCGNS = []
-        self.tree.selectionModel().selectionChanged.connect(self.selectionInfo)
-        self.tree.model.itemChanged.connect(self.updateNameOfNodeCGNS)
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.tabCloseRequested.connect(self.closeTab)
+        self.tab_widget.tabBarDoubleClicked.connect(self.tabDoubleClicked)
+        self.setCentralWidget(self.tab_widget)
 
-        self.setCentralWidget(self.tree)
-
-        if filename:
-            onlyFileName = filename.split(os.sep)[-1]
-            self.setWindowTitle(window_main_title+' '+onlyFileName)
-            self.t = cgns.Tree()
-            self.t.file = filename
-        else:
-            self.t = cgns.Tree()
-            self.t.file = None
-            self.setWindowTitle(window_main_title+' untitled')
-        
-        
-
-
+        # add tabs
+        for fn in filenames: self.newTab(fn)
+     
         toolbar = QToolBar("Main toolbar")
         self.addToolBar(QtCore.Qt.LeftToolBarArea, toolbar)
 
@@ -359,14 +338,6 @@ class MainWindow(QMainWindow):
         key_openTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+O'), self)
         key_openTree.activated.connect(self.openTree)
         toolbar.addAction(button_open)
-
-        button_openAdd = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/folder-horizontal-open-plus") ,"add tree (Ctrl+Shift+O)", self)
-        button_openAdd.setStatusTip("Open a tree from a file and add it to current tree (Ctrl+Shift+O)")
-        button_openAdd.triggered.connect(self.openAddTree)
-        key_openAddTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+O'), self)
-        key_openAddTree.activated.connect(self.openAddTree)
-        toolbar.addAction(button_openAdd)
-
 
         button_reopen = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle.png") ,"Open again (Shift + F5)", self)
         button_reopen.setStatusTip("Open again the current tree from file (Shift + F5)")
@@ -391,23 +362,24 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        button_zoomIn = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-in.png") ,"zoom in (+)", self)
-        button_zoomIn.setStatusTip("Zoom in the tree (+)")
-        button_zoomIn.triggered.connect(self.zoomInTree)
-        key_zoomInTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Plus), self)
-        key_zoomInTree.activated.connect(self.zoomInTree)
-        toolbar.addAction(button_zoomIn)
+        # TODO implement this more efficiently
+        # button_zoomIn = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-in.png") ,"zoom in (+)", self)
+        # button_zoomIn.setStatusTip("Zoom in the tree (+)")
+        # button_zoomIn.triggered.connect(self.zoomInTree)
+        # key_zoomInTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Plus), self)
+        # key_zoomInTree.activated.connect(self.zoomInTree)
+        # toolbar.addAction(button_zoomIn)
 
-        button_zoomOut = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-out.png") ,"zoom out (-)", self)
-        button_zoomOut.setStatusTip("Zoom out the tree (-)")
-        button_zoomOut.triggered.connect(self.zoomOutTree)
-        key_zoomOutTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Minus), self)
-        key_zoomOutTree.activated.connect(self.zoomOutTree)
-        toolbar.addAction(button_zoomOut)
+        # button_zoomOut = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-out.png") ,"zoom out (-)", self)
+        # button_zoomOut.setStatusTip("Zoom out the tree (-)")
+        # button_zoomOut.triggered.connect(self.zoomOutTree)
+        # key_zoomOutTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Minus), self)
+        # key_zoomOutTree.activated.connect(self.zoomOutTree)
+        # toolbar.addAction(button_zoomOut)
 
         button_expandAll = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand-48") ,"expand all nodes", self)
         button_expandAll.setStatusTip("Expand all the nodes of the tree")
-        button_expandAll.triggered.connect(self.tree.expandAll)
+        button_expandAll.triggered.connect(self.expandAll)
         toolbar.addAction(button_expandAll)
 
         button_expandZones = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand3-48") ,"expand to depth 3", self)
@@ -417,7 +389,7 @@ class MainWindow(QMainWindow):
 
         button_collapseAll = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-collapse-48") ,"collapse all nodes", self)
         button_collapseAll.setStatusTip("Collapse all the nodes of the tree")
-        button_collapseAll.triggered.connect(self.tree.collapseAll)
+        button_collapseAll.triggered.connect(self.collapseAll)
         toolbar.addAction(button_collapseAll)
 
         toolbar.addSeparator()
@@ -425,8 +397,6 @@ class MainWindow(QMainWindow):
         button_findNode = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/node-magnifier") ,"find node (Ctrl+F)", self)
         button_findNode.setStatusTip("Find node using criteria based on Name, Value and Type (Ctrl+F)")
         button_findNode.triggered.connect(self.findNodesTree)
-        key_findNodesTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+F'), self)
-        key_findNodesTree.activated.connect(self.findNodesTree)
         toolbar.addAction(button_findNode)
         self.NameToBeFound = None
         self.ValueToBeFound = None
@@ -448,17 +418,11 @@ class MainWindow(QMainWindow):
         button_newNodeTree.setStatusTip("Create a new node attached to the selected node in tree (Ctrl+N)")
         button_newNodeTree.triggered.connect(self.newNodeTree)
         toolbar.addAction(button_newNodeTree)
-        key_newNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+N'), self.tree)
-        key_newNodeTree.setContext(QtCore.Qt.WidgetShortcut)
-        key_newNodeTree.activated.connect(self.newNodeTree)
 
         button_deleteNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/cross") ,"remove selected nodes (Supr)", self)
         button_deleteNodeTree.setStatusTip("remove selected node (Supr)")
         button_deleteNodeTree.triggered.connect(self.deleteNodeTree)
         toolbar.addAction(button_deleteNodeTree)
-        key_deleteNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), self.tree)
-        key_deleteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
-        key_deleteNodeTree.activated.connect(self.deleteNodeTree)
 
 
         button_swap = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-switch.png"), "swap selected nodes", self)
@@ -470,27 +434,17 @@ class MainWindow(QMainWindow):
         button_copyNodeTree.setStatusTip("copy selected nodes (Ctrl+C)")
         button_copyNodeTree.triggered.connect(self.copyNodeTree)
         toolbar.addAction(button_copyNodeTree)
-        key_copyNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+C'), self.tree)
-        key_copyNodeTree.setContext(QtCore.Qt.WidgetShortcut)
-        key_copyNodeTree.activated.connect(self.copyNodeTree)
         self.copiedNodes = []
 
         button_cutNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/scissors-blue") ,"cut selected nodes (Ctrl+X)", self)
         button_cutNodeTree.setStatusTip("cut selected nodes (Ctrl+X)")
         button_cutNodeTree.triggered.connect(self.cutNodeTree)
         toolbar.addAction(button_cutNodeTree)
-        key_cutNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+X'), self.tree)
-        key_cutNodeTree.setContext(QtCore.Qt.WidgetShortcut)
-        key_cutNodeTree.activated.connect(self.cutNodeTree)
-
 
         button_pasteNodeTree = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/clipboard-paste") ,"paste nodes (Ctrl+V)", self)
         button_pasteNodeTree.setStatusTip("Paste previously copied nodes at currently selected parent nodes (Ctrl+V)")
         button_pasteNodeTree.triggered.connect(self.pasteNodeTree)
         toolbar.addAction(button_pasteNodeTree)
-        key_pasteNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+V'), self.tree)
-        key_pasteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
-        key_pasteNodeTree.activated.connect(self.pasteNodeTree)
 
         toolbar.addSeparator()
         button_theme = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.COLOR_MODE,
@@ -500,17 +454,126 @@ class MainWindow(QMainWindow):
         button_theme.triggered.connect(self.changeTheme)
         toolbar.addAction(button_theme)
 
+
+        key_add_tab = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+T'), self)
+        key_add_tab.activated.connect(self.newTab)
+
+
         self.plot_x_container = []
         self.plot_y_container = []
         self.curves_container = []
 
         self.setStatusBar(QStatusBar(self))
-        self.tree.setFocus()
-        if filename: self.reopenTree()
-        else: self.updateModel()
 
         # Center the window on the screen
         self.center_window()
+
+
+    def tabDoubleClicked(self, index):
+        dlg = TabEditionDialog(index, self.tab_widget)
+        if dlg.exec():
+            self.tab_widget.setTabText(index, dlg.NameWidget.text()) 
+
+    def newTab(self, filename=None):
+        tab = QWidget()
+
+        # load tree from file or create empty
+        if filename:
+            onlyFileName = filename.split(os.sep)[-1]
+            QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+            print(f'building CGNS structure of {filename}...')
+            tic = toc()
+            tab.t = cgns.load(filename, only_skeleton=self.only_skeleton)
+            tab.t.file = filename
+            QApplication.restoreOverrideCursor()
+            print('done (%g s)'%(toc()-tic))
+        else:
+            onlyFileName = 'untitled'
+            tab.t = cgns.Tree()
+            tab.t.file = None
+
+        self.tab_widget.addTab(tab, onlyFileName)
+        tab_layout = QVBoxLayout()
+        tab.setLayout(tab_layout)
+
+        # create QTreeView and associated Model
+        tab.tree = QTreeView(self)
+        tab.tree.model = QtGui.QStandardItemModel()
+        tab.tree.setHeaderHidden(True)
+        tab.tree.setModel(tab.tree.model)
+        tab.tree.setStyleSheet(style)
+        tab.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        tab.tree.setDragDropMode(QAbstractItemView.DragDrop)
+        tab.tree.setDragEnabled(True)
+        tab.tree.setAcceptDrops(True)
+        tab.tree.setDropIndicatorShown(True)
+        tab.tree.setDefaultDropAction(QtCore.Qt.MoveAction)
+        self.selectedNodesCGNS = []
+        tab.tree.selectionModel().selectionChanged.connect(self.selectionInfo)
+        tab.tree.model.itemChanged.connect(self.updateNameOfNodeCGNS)
+        print('building Qt model...')
+        tic = toc()
+        self.updateModel(tab)
+        print('done (%g s)'%(toc()-tic))
+
+        # add tree view model to tab layout
+        tab_layout.addWidget(tab.tree)
+        tab.tree.setFocus()
+        new_index = self.tab_widget.count()-1
+        self.tab_widget.setCurrentIndex(new_index)
+
+        # add tree-specific keyboard controls
+        key_newNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+N'), tab.tree)
+        key_newNodeTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_newNodeTree.activated.connect(self.newNodeTree)
+
+        key_deleteNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Delete), tab.tree)
+        key_deleteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_deleteNodeTree.activated.connect(self.deleteNodeTree)
+
+        key_copyNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+C'), tab.tree)
+        key_copyNodeTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_copyNodeTree.activated.connect(self.copyNodeTree)
+
+        key_cutNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+X'), tab.tree)
+        key_cutNodeTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_cutNodeTree.activated.connect(self.cutNodeTree)
+
+        key_pasteNodeTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+V'), tab.tree)
+        key_pasteNodeTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_pasteNodeTree.activated.connect(self.pasteNodeTree)
+
+        key_findNodesTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+F'), tab.tree)
+        key_findNodesTree.setContext(QtCore.Qt.WidgetShortcut)
+        key_findNodesTree.activated.connect(self.findNodesTree)
+
+
+
+    def closeTab(self, index):
+        # Get the widget associated with the tab
+        tab = self.tab_widget.widget(index)
+
+        # removes data associated to tab
+        del tab.t
+        del tab.tree
+
+        # Remove the tab from the tab widget
+        self.tab_widget.removeTab(index)
+
+
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
+        if event.modifiers() & QtCore.Qt.ControlModifier:
+            if event.key() == QtCore.Qt.Key_PageUp:
+                current_index = self.tab_widget.currentIndex()
+                new_index = (current_index - 1) % self.tab_widget.count()
+                self.tab_widget.setCurrentIndex(new_index)
+            elif event.key() == QtCore.Qt.Key_PageDown:
+                current_index = self.tab_widget.currentIndex()
+                new_index = (current_index + 1) % self.tab_widget.count()
+                self.tab_widget.setCurrentIndex(new_index)
+
 
     def center_window(self):
         # Get the primary screen's geometry
@@ -548,16 +611,20 @@ class MainWindow(QMainWindow):
 
 
     def get_x_from_curve_item(self, curve):
-        path = 'CGNSTree/'+curve.Xchoser.currentText()
-        node = self.t.getAtPath(path)
+        index = int(curve.Xchoser.currentText().split('@')[0].replace('tab',''))
+        tab = self.getTabFromIndex(index)
+        path = 'CGNSTree/'+'@'.join(curve.Xchoser.currentText().split('@')[1:])
+        node = tab.t.getAtPath(path)
         node_value = node.value()
         if isinstance(node_value, str) and node_value == '_skeleton':
             self.update_node_data_and_children(node)
         return node.value(), node.name()
 
     def get_y_from_curve_item(self, curve):
-        path = 'CGNSTree/'+curve.Ychoser.currentText()
-        node = self.t.getAtPath(path)
+        index = int(curve.Ychoser.currentText().split('@')[0].replace('tab',''))
+        tab = self.getTabFromIndex(index)
+        path = 'CGNSTree/'+'@'.join(curve.Ychoser.currentText().split('@')[1:])
+        node = tab.t.getAtPath(path)
         node_value = node.value()
         if isinstance(node_value, str) and node_value == '_skeleton':
             self.update_node_data_and_children(node)
@@ -655,7 +722,7 @@ class MainWindow(QMainWindow):
     def add_selected_nodes_to_plot_x_container(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         for node in self.selectedNodesCGNS:
-            path = node.path().replace('CGNSTree/','')
+            path = 'tab%d@'%self.getTabIndex()+node.path().replace('CGNSTree/','')
             if path not in self.plot_x_container:
                 self.plot_x_container += [ path ]
         for c in self.curves_container:
@@ -669,7 +736,7 @@ class MainWindow(QMainWindow):
     def add_selected_nodes_to_plot_y_container(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         for node in self.selectedNodesCGNS:
-            path = node.path().replace('CGNSTree/','')
+            path = 'tab%d@'%self.getTabIndex()+node.path().replace('CGNSTree/','')
             if path not in self.plot_y_container:
                 self.plot_y_container += [ path ]
         for c in self.curves_container:
@@ -683,7 +750,9 @@ class MainWindow(QMainWindow):
     def modify_node_data(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
 
-        if self.t.file is None or not os.path.exists( self.t.file):
+        t = self.getCGNSTree()
+
+        if t.file is None or not os.path.exists( t.file):
             QApplication.restoreOverrideCursor()
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
@@ -697,13 +766,13 @@ class MainWindow(QMainWindow):
 
         for node in self.selectedNodesCGNS:
             try:
-                node.saveThisNodeOnly( self.t.file )
+                node.saveThisNodeOnly( t.file )
             except TypeError as e:
                 e_str = str(e)
                 if e_str == 'Only chunked datasets can be resized':
                     err_msg = ('cannot save selected nodes since file:\n\n   %s\n\n'
                         'was not generated using chunks.\n\nTo save modifications, '
-                        'please save the entire file')%self.t.file
+                        'please save the entire file')%t.file
                 else:
                     err_msg = e_str
                 # except BaseException as e:
@@ -727,10 +796,9 @@ class MainWindow(QMainWindow):
         if node.type() == 'DataArray_t':
 
             try:
-                node.reloadNodeData( self.t.file )
+                node.reloadNodeData( self.getCGNSTree().file )
             except BaseException as e:
-                err_msg = ''.join(traceback.format_exception(etype=type(e),
-                                      value=e, tb=e.__traceback__))
+                err_msg = ''.join(traceback.format_exception(type(e),e, e.__traceback__))
                 QApplication.restoreOverrideCursor()
 
                 msg = QMessageBox()
@@ -777,10 +845,11 @@ class MainWindow(QMainWindow):
     def replace_link(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         for node in self.selectedNodesCGNS:
+            if node.type() != 'Link_t': continue
             item = node.QStandardItem
             path = node.path()
             node.replaceLink()
-            node = self.t.getAtPath( path )
+            node = self.getCGNSTree().getAtPath( path )
             item.node_cgns = node
             item.node_cgns.QStandardItem = item
             item.isStyleCGNSbeingModified = True
@@ -838,10 +907,11 @@ class MainWindow(QMainWindow):
 
 
     def newNodeTree(self):
-        index = self.tree.selectionModel().selectedIndexes()
+        index = self.getTreeSelectedIndexes()
         if len(index) < 1: return
         index = index[0]
-        item = self.tree.model.itemFromIndex(index)
+        item = self.getTreeItemFromIndex(index)
+        tree = self.getQtTree()
 
         dlg = NewNodeDialog(item.node_cgns.Path)
         if dlg.exec():
@@ -884,11 +954,11 @@ class MainWindow(QMainWindow):
                     NewValue = np.array([NewValue],dtype=np.int32,order='F')
 
             
-            indices = self.tree.selectionModel().selectedIndexes()
-            self.tree.clearSelection()
-            self.tree.setSelectionMode(QAbstractItemView.MultiSelection)
+            indices = tree.selectionModel().selectedIndexes()
+            tree.clearSelection()
+            tree.setSelectionMode(QAbstractItemView.MultiSelection)
             for index in indices:
-                item = self.tree.model.itemFromIndex(index)
+                item = tree.model.itemFromIndex(index)
 
                 parentnode = item.node_cgns
                 newnode = cgns.castNode([NewName, NewValue, [], NewType])
@@ -903,24 +973,24 @@ class MainWindow(QMainWindow):
                 self.setStyleCGNS(newitem)
                 newitem.isStyleCGNSbeingModified = False
                 item.isStyleCGNSbeingModified = False
-                newindex = self.tree.model.indexFromItem(newitem)
+                newindex = tree.model.indexFromItem(newitem)
 
-                self.tree.setCurrentIndex(newindex)
-            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+                tree.setCurrentIndex(newindex)
+            tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
 
     def deleteNodeTree(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        index = self.tree.selectionModel().selectedIndexes()
+        index = self.getTreeSelectedIndexes()
         while len(index)>0:
             index=index[0]
-            item = self.tree.model.itemFromIndex(index)
+            item = self.getTreeItemFromIndex(index)
             if item.parent():
                 item.parent().removeRow(item.row())
             else:
-                self.tree.model.invisibleRootItem().removeRow(item.row())
+                self.getTreeModel().invisibleRootItem().removeRow(item.row())
             if item.node_cgns.Parent: item.node_cgns.remove()
-            index = self.tree.selectionModel().selectedIndexes()
+            index = self.getTreeSelectedIndexes()
         QApplication.restoreOverrideCursor()
 
 
@@ -962,9 +1032,9 @@ class MainWindow(QMainWindow):
 
             if dlg.searchFromSelection.isChecked():
                 self.FoundNodes = []
-                indices = self.tree.selectionModel().selectedIndexes()
+                indices = self.getTreeSelectedIndexes()
                 for index in indices:
-                    item = self.tree.model.itemFromIndex(index)
+                    item = self.getTreeItemFromIndex(index)
                     self.FoundNodes.extend(item.node_cgns.group(
                                                 Name=self.NameToBeFound,
                                                 Value=self.ValueToBeFound,
@@ -972,17 +1042,18 @@ class MainWindow(QMainWindow):
                                                 Depth=self.DepthToBeFound))
 
             else:
-                self.FoundNodes = self.t.group(Name=self.NameToBeFound,
+                self.FoundNodes = self.getCGNSTree().group(Name=self.NameToBeFound,
                                                Value=self.ValueToBeFound,
                                                Type=self.TypeToBeFound,
                                                Depth=self.DepthToBeFound)
 
-            self.tree.clearSelection()
-            self.tree.setSelectionMode(self.tree.MultiSelection)
+            tree = self.getQtTree()
+            tree.clearSelection()
+            tree.setSelectionMode(QAbstractItemView.MultiSelection)
             for node in self.FoundNodes:
-                index = self.tree.model.indexFromItem(node.QStandardItem)
-                self.tree.setCurrentIndex(index)
-            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+                index = tree.model.indexFromItem(node.QStandardItem)
+                tree.setCurrentIndex(index)
+            tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.selectionInfo(None)
             self.CurrentFoundNodeIndex = -1
             # QApplication.restoreOverrideCursor()
@@ -1001,29 +1072,38 @@ class MainWindow(QMainWindow):
             self.CurrentFoundNodeIndex = 0
             return
 
-        index = self.tree.model.indexFromItem(node.QStandardItem)
-        self.tree.setCurrentIndex(index)
+        tree = self.getQtTree()
+        index = tree.model.indexFromItem(node.QStandardItem)
+        tree.setCurrentIndex(index)
         # QApplication.restoreOverrideCursor()
 
+    def expandAll(self):
+        self.getQtTree().expandAll()
+
     def expandToZones(self):
-        self.tree.expandToDepth(1)
+        self.getQtTree().expandToDepth(1)
+
+    def collapseAll(self):
+        self.getQtTree().collapseAll()
 
     def zoomInTree(self):
+        print('to be reimplemented more efficiently')
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        root = self.t.QStandardItem
-        self.fontPointSize += 1
-        self.setStyleCGNS(root)
-        for item in self.iterItems(root):
-            self.setStyleCGNS(item)
+        # root = self.t.QStandardItem
+        # self.fontPointSize += 1
+        # self.setStyleCGNS(root)
+        # for item in self.iterItems(root):
+        #     self.setStyleCGNS(item)
         # QApplication.restoreOverrideCursor()
 
     def zoomOutTree(self):
+        print('to be reimplemented more efficiently')
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        root = self.t.QStandardItem
-        self.fontPointSize -= 1
-        self.setStyleCGNS(root)
-        for item in self.iterItems(root):
-            self.setStyleCGNS(item)
+        # root = self.t.QStandardItem
+        # self.fontPointSize -= 1
+        # self.setStyleCGNS(root)
+        # for item in self.iterItems(root):
+        #     self.setStyleCGNS(item)
         # QApplication.restoreOverrideCursor()
 
     def iterItems(self, root):
@@ -1037,61 +1117,35 @@ class MainWindow(QMainWindow):
                     if child.hasChildren():
                         stack.append(child)
 
-    def openAddTree(self):
-        fname = QFileDialog.getOpenFileName(self, 'Add file', '.',"CGNS files (*.cgns *.hdf *.hdf5)")
-        onlyFileName = fname[0].split(os.sep)[-1]
-        if not onlyFileName: return
-        # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        print('building full CGNS...')
-        tic = toc()
-        t = cgns.load(fname[0], only_skeleton=False)
-        self.t.merge(t)
-        print('done (%g s)'%(toc()-tic))
-        # QApplication.restoreOverrideCursor()
-        print('updating Qt model...')
-        tic = toc()
-        self.updateModel()
-        print('done (%g s)'%(toc()-tic))
-
-
     def openTree(self):
         fname = QFileDialog.getOpenFileName(self, 'Open file', '.',"CGNS files (*.cgns *.hdf *.hdf5)")
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         onlyFileName = fname[0].split(os.sep)[-1]
         if not onlyFileName: return
-        self.setWindowTitle(window_main_title+' '+onlyFileName)
-        print('building CGNS structure...')
-        tic = toc()
-        self.t = cgns.load(fname[0], only_skeleton=self.only_skeleton)
-        print('done (%g s)'%(toc()-tic))
-        self.t.file = fname[0]
-        # QApplication.restoreOverrideCursor()
-        print('building Qt model...')
-        tic = toc()
-        self.updateModel()
-        print('done (%g s)'%(toc()-tic))
-
+        self.newTab(fname[0])
 
     def reopenTree(self):
-        file = self.t.file
+        t = self.getCGNSTree()
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        print('building CGNS structure...')
+        print(f'rebuilding CGNS structure of {t.file}...')
         tic = toc()
-        self.t = cgns.load(self.t.file, only_skeleton=self.only_skeleton)
+        tab = self.getTab()
+        tab.t = cgns.load(t.file, only_skeleton=self.only_skeleton)
+        tab.t.file = t.file
         QApplication.restoreOverrideCursor()
         print('done (%g s)'%(toc()-tic))
-        self.t.file = file
         print('building Qt model...')
         tic = toc()
-        self.updateModel()
+        self.updateModel(self.getTab())
         print('done (%g s)'%(toc()-tic))
 
     def saveTree(self):
-        if self.t.file:
-            print('will write: '+self.t.file)
+        t = self.getCGNSTree()
+        if t.file:
+            print('will write: '+t.file)
             QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-            self.t.replaceSkeletonWithDataRecursively(self.t.file)
-            self.t.save(self.t.file)
+            t.replaceSkeletonWithDataRecursively(t.file)
+            t.save(t.file)
             print('done')
             QApplication.restoreOverrideCursor()
         else:
@@ -1100,14 +1154,14 @@ class MainWindow(QMainWindow):
     def saveTreeAs(self):
         fname = QFileDialog.getSaveFileName(self, 'Save file', '.',"CGNS files (*.cgns)")
         onlyFileName = fname[0].split(os.sep)[-1]
+        t = self.getCGNSTree()
         if onlyFileName:
             QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
             print('will write: '+onlyFileName)
-            self.t.replaceSkeletonWithDataRecursively(self.t.file)
-            self.t.save(fname[0])
+            t.replaceSkeletonWithDataRecursively(t.file)
+            t.save(fname[0])
             print('done')
-            self.t.file = fname[0]
-            self.setWindowTitle(window_main_title+' '+onlyFileName)
+            t.file = fname[0]
             QApplication.restoreOverrideCursor()
 
 
@@ -1134,24 +1188,50 @@ class MainWindow(QMainWindow):
         self.updateModelChildrenFromItem(item)
 
     def updateTypeOfNodeCGNS(self):
-        for index in self.tree.selectionModel().selectedIndexes():
-            item = self.tree.model.itemFromIndex(index)
+        for index in self.getTreeSelectedIndexes():
+            item = self.getTreeItemFromIndex(index)
             newType = self.dock.typeEditor.lineEditor.text()
             item.node_cgns.setType(newType)
             item.isStyleCGNSbeingModified = True
             self.setStyleCGNS(item)
             item.isStyleCGNSbeingModified = False
 
+    def getTabIndex(self): return self.tab_widget.currentIndex()
+    
+    def getTab(self): return self.tab_widget.widget(self.getTabIndex())
+
+    def getTabFromIndex(self, index): return self.tab_widget.widget(index)
+    
+    def getTabs(self):
+        return [self.tab_widget.widget(i) for i in range(self.tab_widget.count())]
+
+    def getQtTree(self): return self.getTab().tree
+
+    def getQtTrees(self): return [tab.tree for tab in self.getTabs()]
+
+    def getCGNSTree(self): return self.getTab().t
+
+    def getCGNSTrees(self): return [tab.t for tab in self.getTabs()]
+
+    def getTreeModel(self): return self.getQtTree().model
+
+    def getTreeItemFromIndex(self, index):
+        return self.getTreeModel().itemFromIndex(index)
+
+    def getTreeSelectionModel(self): return self.getQtTree().selectionModel()
+
+    def getTreeSelectedIndexes(self): return self.getTreeSelectionModel().selectedIndexes()
+
     def selectionInfo(self, selection):
         self.selectedNodesCGNS = []
         self.selectedNodeCGNS = None
-        indexes = self.tree.selectionModel().selectedIndexes()
+        indexes = self.getTreeSelectedIndexes()
         if isinstance(indexes, QtCore.QModelIndex): indexes = [indexes]
         MSG = '%d nodes selected'%len(indexes)
         self.setStatusTip( MSG )
         self.statusBar().showMessage( MSG )
         for index in indexes:
-            item = self.tree.model.itemFromIndex(index)
+            item = self.getTreeItemFromIndex(index)
             self.selectedNodesCGNS.append( item.node_cgns )
             self.selectedNodeCGNS = item.node_cgns
 
@@ -1338,8 +1418,9 @@ class MainWindow(QMainWindow):
     def updateValueOfNodeCGNS(self, item):
         if self.table.isBeingUpdated: return
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for index in self.tree.selectionModel().selectedIndexes():
-            treeitem = self.tree.model.itemFromIndex(index)
+        tree = self.getQtTree()
+        for index in tree.selectionModel().selectedIndexes():
+            treeitem = tree.model.itemFromIndex(index)
 
         node_cgns = treeitem.node_cgns
         value = node_cgns.value()
@@ -1497,14 +1578,14 @@ class MainWindow(QMainWindow):
 
 
     def swapNodes(self, s):
-        indices = self.tree.selectionModel().selectedIndexes()
+        indices = self.getTreeSelectedIndexes()
         if len(indices) != 2:
             print('requires selecting 2 nodes for swapping')
             return
         else:
             # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-            item1 = self.tree.model.itemFromIndex(indices[0])
-            item2 = self.tree.model.itemFromIndex(indices[1])
+            item1 = self.getTreeItemFromIndex(indices[0])
+            item2 = self.getTreeItemFromIndex(indices[1])
 
             for item in [item1, item2]:
                 item.isStyleCGNSbeingModified = True
@@ -1532,13 +1613,14 @@ class MainWindow(QMainWindow):
 
             node1.swap(node2)
 
-            self.tree.setSelectionMode(self.tree.MultiSelection)
+            tree = self.getQtTree()
+            tree.setSelectionMode(QAbstractItemView.MultiSelection)
             for item in [item1, item2]:
                 self.setStyleCGNS(item)
                 self.updateModelChildrenFromItem(item)
-                index = self.tree.model.indexFromItem(item)
-                self.tree.setCurrentIndex(index)
-            self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+                index = tree.model.indexFromItem(item)
+                tree.setCurrentIndex(index)
+            tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
             for item in [item1, item2]:
                 item.isStyleCGNSbeingModified = False
@@ -1553,12 +1635,6 @@ class MainWindow(QMainWindow):
         node = MainItem.node_cgns
         MainItem.isStyleCGNSbeingModified = True
 
-        # from ChatGPT
-        # font = QtGui.QFont()
-        # font.setWeight(QtGui.QFont.Bold)
-        # font.setItalic(True)
-        # MainItem.setFont(font)
-
         font = MainItem.font()
         font.setPointSize( int(self.fontPointSize) )
         font.setBold(False)
@@ -1566,7 +1642,7 @@ class MainWindow(QMainWindow):
         # brush = QtGui.QBrush()
         # brush.setColor(QtGui.QColor("#cccccc")) # tree default color
         iconSize = int(self.fontPointSize*1.333)
-        self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
+        # self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
         MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.75),int(iconSize*1.75)))
         MainItem.setIcon(QtGui.QIcon())
 
@@ -1640,24 +1716,24 @@ class MainWindow(QMainWindow):
         MainItem.setFont(font)
         MainItem.isStyleCGNSbeingModified = False
 
-    def updateModel(self):
+    def updateModel(self, tab):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        nodes = self.t.group()
+        nodes = tab.t.group()
 
-        self.tree.model.setRowCount(0)
-        root = self.tree.model.invisibleRootItem()
+        tab.tree.model.setRowCount(0)
+        root = tab.tree.model.invisibleRootItem()
 
-        self.t.QStandardItem = QtGui.QStandardItem(self.t.name())
-        self.t.QStandardItem.node_cgns = self.t
-        root.appendRow([self.t.QStandardItem])
-        self.setStyleCGNS(self.t.QStandardItem)
+        tab.t.QStandardItem = QtGui.QStandardItem(tab.t.name())
+        tab.t.QStandardItem.node_cgns = tab.t
+        root.appendRow([tab.t.QStandardItem])
+        self.setStyleCGNS(tab.t.QStandardItem)
 
         for node in nodes:
             MainItem = node.QStandardItem = QtGui.QStandardItem(node.name())
             MainItem.node_cgns = node
             node.Parent.QStandardItem.appendRow([node.QStandardItem])
             self.setStyleCGNS(MainItem)
-        self.tree.expandToDepth(1)
+        tab.tree.expandToDepth(1)
         QApplication.restoreOverrideCursor()
 
     def updateModelChildrenFromItem(self, item):
@@ -1719,6 +1795,8 @@ class TableWithCopy(QTableWidget):
 
         elif event.key() == QtCore.Qt.Key_A and (event.modifiers() & QtCore.Qt.ControlModifier):
             self.selectAll()
+
+
 
 
 class FindNodeDialog(QDialog):
@@ -1819,23 +1897,46 @@ class NewNodeDialog(QDialog):
         self.setLayout(self.layout)
 
 
+class TabEditionDialog(QDialog):
+    def __init__(self, index, tab_widget):
+        super().__init__()
+
+        self.setWindowTitle("Set new tab name")
+        tab = tab_widget.widget(index)
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+
+        self.layout = QFormLayout()
+        self.FilePath = QLineEdit(str(tab.t.file))
+        self.FilePath.setReadOnly(True)
+        self.layout.addRow(QLabel("File path:"),  self.FilePath)
+
+        self.NameWidget = QLineEdit(tab_widget.tabText(index))
+        self.layout.addRow(QLabel("Tab name:"),  self.NameWidget)
+
+
+        self.buttonBox = QDialogButtonBox(QBtn)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+        self.layout.addWidget(self.buttonBox)
+
+        self.setLayout(self.layout)
+
+
 def launch():
     
     print(sys.argv)
     args = sys.argv[1:] 
 
-    filename = [f for f in args if f.endswith('.cgns') or \
+    filenames = [f for f in args if f.endswith('.cgns') or \
                                    f.endswith('.hdf')]
-    if filename: filename = filename[0]
     
     only_skeleton = any([f for f in args if f=='-s'])
 
     app = QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
     app.setStyleSheet(qtvsc.load_stylesheet(get_user_theme()))
-    print('filename=',filename)
     print('only_skeleton=',only_skeleton, " (use -s to set to True)")
-    MW = MainWindow( filename, only_skeleton )
+    MW = MainWindow( filenames, only_skeleton )
     MW.resize(650, 815)
     MW.show()
     sys.exit( app.exec_() )

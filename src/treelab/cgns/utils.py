@@ -44,9 +44,12 @@ def castNode( NodeOrNodelikeList ):
                 if not isinstance(node, Curve):
                     node = Curve(node)
         elif Kind == 'LiftingLine':
-            from .LiftingLine import LiftingLine
-            if not isinstance(node, LiftingLine):
-                node = LiftingLine(node)
+            try:
+                from mola.LiftingLine import LiftingLine
+                if not isinstance(node, LiftingLine):
+                    node = LiftingLine(node)
+            except:
+                pass
         else:
             raise IOError('kind of zone "%s" not implemented'%Kind)
 
@@ -110,7 +113,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             * relative or absolute path of the file name in ``*.cgns`` or ``*.hdf5``
               format containing the `CGNS`_ tree.
             
-            * an object :py:class:`mola.cgns.tree.Tree`. In this case, this function does nothing.
+            * an object :py:class:`treelab.cgns.tree.Tree`. In this case, this function does nothing.
 
             * a list, assumed to be a tree or a list or trees as manipulated by h5py, Cassiopee or Maia. 
               In this case, this function performs a py:fun:`merge` operation on that list.

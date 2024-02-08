@@ -21,7 +21,7 @@ Implements class **Point**, which inherits from :py:class:`Curve`
 28/04/2022 - L. Bernardos - first creation
 '''
 
-from mola.misc import np, RED,GREEN,YELLOW,PINK,CYAN,ENDC
+from ....misc import np, RED,GREEN,YELLOW,PINK,CYAN,ENDC
 from . import Curve
 from ...node import Node
 

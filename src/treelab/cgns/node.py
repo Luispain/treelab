@@ -948,7 +948,7 @@ class Node(list):
     def saveThisNodeOnly( self, filename, backend='h5py2cgns'):
 
         if backend == 'h5py2cgns':
-            from . import h5py2cgns as h
+            from .read_write import h5py2cgns as h
             value = self.value()
             if isinstance(value,str) and value == '_skeleton':
                 raise IOError('%s cannot write a skeleton node'%self.path())

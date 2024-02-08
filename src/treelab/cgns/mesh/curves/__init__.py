@@ -21,8 +21,8 @@ Main subpackage for curves operations
 28/04/2022 - L. Bernardos - first creation
 '''
 import numpy as np
-from mola.misc import RED,GREEN,YELLOW,PINK,CYAN,ENDC
-from mola.math_tools import interpolate, tanhOneSideFromStep, tanhTwoSidesFromSteps
+from ....misc import RED,GREEN,YELLOW,PINK,CYAN,ENDC
+from ....math_tools import interpolate, tanhOneSideFromStep, tanhTwoSidesFromSteps
 from ...zone import Zone
 
 class Curve(Zone):
