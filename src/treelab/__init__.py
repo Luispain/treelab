@@ -15,7 +15,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with MOLA.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.0.2'
+__version__ = '0.1.0'
 
 try:
     import os

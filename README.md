@@ -1,4 +1,4 @@
-TreeLab is part of [MOLA](https://github.com/onera/MOLA) software, fully sharing its license and rights.
+[TreeLab](https://github.com/Luispain/treelab) is part of [MOLA](https://github.com/onera/MOLA) software, fully sharing its license and rights. 
 
 Installation
 ============
