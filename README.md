@@ -22,6 +22,14 @@ python3 -m pip --user install .
 * You can use `--prefix` option to specify the directory where the installation will be done
 * You can use `-e` option to install in developer mode; such that any change in `*.py` source files will be immediately take effect
 
+If you do not have admin rights and you encounter problems using `--prefix`, then
+try force reinstalling all dependencies:
+
+```
+python3 -m pip install --force-reinstall --no-cache-dir --ignore-installed --prefix=/your/path/to/treelab/installation mola-treelab
+```
+
+
 From stable releases
 --------------------
 
