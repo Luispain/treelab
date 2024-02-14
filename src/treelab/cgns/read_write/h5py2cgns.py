@@ -52,7 +52,8 @@ def load(filename, only_skeleton=False):
     f = load_h5(filename)
     children = []
     l = []
-    for childname in f:
+
+    for childname in f['/'].keys():
         childnode = build_cgns_nodelist( f[childname], links=l,
                                          ignore_DataArray=only_skeleton)
         if not childnode: continue
@@ -64,11 +65,11 @@ def load(filename, only_skeleton=False):
 
 
 def load_h5(filename, permission='r'):
-    f = h5py.File(filename, permission)
+    f = h5py.File(filename, permission, track_order=True)
     return f
 
 def save(t, filename, links=[]):
-    with h5py.File(filename, 'w') as f:
+    with h5py.File(filename, 'w', track_order=True) as f:
         f['/'].attrs.create('name', np.array('HDF5 MotherNode'.encode(encoding), dtype=str_dtype) )
         f['/'].attrs.create('label', np.array('Root Node of HDF5 File'.encode(encoding), dtype=str_dtype) )
         f['/'].attrs.create('type', np.array('MT'.encode(encoding), dtype=cgns_dtype) )
@@ -88,9 +89,9 @@ def save(t, filename, links=[]):
 
 def nodelist_to_group(f, node, nodepath=None, links=[] ):
     if nodepath is not None:
-        group = f.create_group( nodepath.encode(encoding) )
+        group = f.create_group( nodepath.encode(encoding), track_order=True )
     else:
-        group = f.create_group( node[0].encode(encoding) )
+        group = f.create_group( node[0].encode(encoding), track_order=True )
     group.attrs.create('name',  np.array(node[0].encode(encoding), dtype=str_dtype) )
     group.attrs.create('flags', np.array([1],dtype=np.int32))
     group.attrs.create('label', np.array(node[3].encode(encoding), dtype=str_dtype) )

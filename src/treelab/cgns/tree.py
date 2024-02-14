@@ -29,7 +29,7 @@ from .zone import Zone
 
 class Tree(Node):
     """docstring for Tree"""
-    def __init__(self, input=[], **kwargs):
+    def __init__(self, input=[], defaultCGNSLibraryVersion=3.1, **kwargs):
         if isinstance(input, Node):
             super().__init__(Name='CGNSTree',Type='CGNSTree_t')
             self.addChildren( input.children() )
@@ -38,9 +38,10 @@ class Tree(Node):
             if input:
                 self.merge( input[2] )
 
-        if not self.get('CGNSLibraryVersion', Depth=1):
+        if not self.get('CGNSLibraryVersion', Depth=1)  \
+            and defaultCGNSLibraryVersion:
             ver=Node(Name='CGNSLibraryVersion',
-                     Value=np.array([3.1],dtype=np.float32),
+                     Value=np.array([defaultCGNSLibraryVersion],dtype=np.float32),
                      Type='CGNSLibraryVersion_t')
             self.addChild(ver,position=0)
 
@@ -48,10 +49,9 @@ class Tree(Node):
         for k in kwargs:
             children = [kwargs[k]] if isinstance(kwargs[k], Node) else kwargs[k]
             Base(Name=k, Children=children, Parent=self,
-                 override_brother_by_name=False)
+                 override_sibling_by_name=False)
 
         self.setUniqueBaseNames()
-        self.setUniqueZoneNames()
 
     def bases(self):
         return [c for c in self.children() if isinstance(c, Base)]
@@ -116,24 +116,23 @@ class Tree(Node):
 
         for t in elements:
             if isinstance(t, Tree):
-                self.addChildren(t.children(), override_brother_by_name=False)
+                self.addChildren(t.children(), override_sibling_by_name=False)
             elif isinstance(t, Base):
-                self.addChild(t, override_brother_by_name=False)
+                self.addChild(t, override_sibling_by_name=False)
             elif isinstance(t, Zone):
                 try:
                     base = self.bases()[-1]
                 except:
                     base = Base()
-                base.addChild(t, override_brother_by_name=False)
-                self.addChild(base, override_brother_by_name=True)
+                base.addChild(t, override_sibling_by_name=False)
+                self.addChild(base, override_sibling_by_name=True)
             elif isinstance(t, Node):
-                self.addChild(t, override_brother_by_name=False)
+                self.addChild(t, override_sibling_by_name=False)
             elif isinstance(t, list):
                 self.merge( t )
 
         self.findAndRemoveNodes(Name='CGNSLibraryVersion.*', Depth=1)
         self.setUniqueBaseNames()
-        self.setUniqueZoneNames()
 
     def isStructured(self):
         return all([base.isStructured() for base in self.bases()])

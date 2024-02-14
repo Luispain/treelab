@@ -96,14 +96,14 @@ class Node(list):
                 you can omit the suffix ``_t`` if you like *(it will be 
                 automatically added if omitted)*
 
-        override_brother_by_name : :py:class:`bool`
+        override_sibling_by_name : :py:class:`bool`
             if :py:obj:`True`, all children at same hierarchical level with 
             same **Name** are overriden (only last is kept). If :py:obj:`False`,
             an incremental numeric tag is appended to the **Name** such that 
-            no other brother has same name.
+            no other sibling has same name.
 
             .. important::
-                brother nodes must have different names
+                sibling nodes must have different names
 
         position : :py:class:`str` or :py:class:`int`
             the position among the children of **Parent** where the new 
@@ -166,7 +166,7 @@ class Node(list):
 
     def __init__(self, args=['Node',None,[],'DataArray_t'], Parent=None, Children=[],
                              Name=None, Value=None, Type=None,
-                             override_brother_by_name=True,
+                             override_sibling_by_name=True,
                              position='last'):
         list.__init__(self, args)
         if Name is not None:
@@ -184,17 +184,17 @@ class Node(list):
             self.Path = self[0]
 
         if Parent:
-            brothers = Parent[2]
-            brothersNames = [b[0] for b in brothers]
+            siblings = Parent[2]
+            siblingsNames = [b[0] for b in siblings]
 
 
             willWrite = True
-            if Name in brothersNames:
+            if Name in siblingsNames:
                 willWrite = False
-                if not override_brother_by_name:
+                if not override_sibling_by_name:
                     i = 0
                     newName = Name+'.%d'%i
-                    while newName in brothersNames:
+                    while newName in siblingsNames:
                         i += 1
                         newName = Name+'.%d'%i
                     self[0] = Name = newName
@@ -208,7 +208,7 @@ class Node(list):
 
         self[2] = []
         self[2].extend(args[2])
-        self.addChildren(Children, override_brother_by_name)
+        self.addChildren(Children, override_sibling_by_name)
         self._updateSelfAndChildrenPaths()
 
     def parent(self):
@@ -595,11 +595,11 @@ class Node(list):
 
     def hasChildren(self): return bool(self.children())
 
-    def brothers(self, include_myself=True):
+    def siblings(self, include_myself=True):
         if include_myself: return self.Parent.children()
         return [c for c in self.Parent.children() if c is not self]
 
-    def hasBrothers(self): return bool(self.brothers())
+    def hassiblings(self): return bool(self.siblings())
 
     def type(self): return self[3]
 
@@ -664,18 +664,18 @@ class Node(list):
     def getChildrenNames(self):
         return [c[0] for c in self[2]]
 
-    def addChild(self, child, override_brother_by_name=True,
+    def addChild(self, child, override_sibling_by_name=True,
                  position='last'):
-        brothersNames = [ c[0] for c in self[2] ]
+        siblingsNames = [ c[0] for c in self[2] ]
         childname = child[0]
 
-        if childname in brothersNames:
-            if override_brother_by_name:
+        if childname in siblingsNames:
+            if override_sibling_by_name:
                 self.get(childname).remove()
             else:
                 i = 0
                 newchildname = childname+'.%d'%i
-                while newchildname in brothersNames:
+                while newchildname in siblingsNames:
                     i += 1
                     newchildname = childname+'.%d'%i
                 child[0] = newchildname
@@ -690,24 +690,24 @@ class Node(list):
         child._updateSelfAndChildrenPaths()
 
 
-    def addChildren(self, children, override_brother_by_name=True):
+    def addChildren(self, children, override_sibling_by_name=True):
         if isinstance(children, Node):
             children = [children]
         for child in children:
-            self.addChild(child, override_brother_by_name)
+            self.addChild(child, override_sibling_by_name)
 
-    def attachTo(self, Parent, override_brother_by_name=True, position='last'):
+    def attachTo(self, Parent, override_sibling_by_name=True, position='last'):
         if isinstance(Parent, Node):
-            Parent.addChild( self , override_brother_by_name, position)
+            Parent.addChild( self , override_sibling_by_name, position)
         elif Parent is not None:
             Parent = Node(Parent, Children=[self])
 
     def dettach(self):
         try:
-            brothers = self.brothers()
-            for i, n in enumerate(brothers):
+            siblings = self.siblings()
+            for i, n in enumerate(siblings):
                 if n is self:
-                    brothers.pop(i)
+                    siblings.pop(i)
         except AttributeError as error:
             if self.Parent is None:
                 raise AttributeError('cannot dettach from no Parent -> Node (%s)'%self.name())
@@ -719,14 +719,14 @@ class Node(list):
 
     def swap(self, node):
         if self.Parent is not None:
-            for i, n in enumerate( self.brothers() ):
+            for i, n in enumerate( self.siblings() ):
                 if n is self:
                     break
         else:
             i = 0
 
         if node.Parent is not None:
-            for j, n in enumerate( node.brothers() ):
+            for j, n in enumerate( node.siblings() ):
                 if n is node:
                     break
         else:
@@ -740,9 +740,10 @@ class Node(list):
         node.attachTo(selfParent, position=i)
 
 
-    def moveTo(self, Parent, position='last'):
+    def moveTo(self, Parent, position='last', override_sibling_by_name=True):
         if self.Parent: self.dettach()
-        self.attachTo(Parent, position=position)
+        self.attachTo(Parent, position=position,
+                      override_sibling_by_name=override_sibling_by_name)
 
     def getTopParent(self):
         TopParent = self.Parent
@@ -836,10 +837,10 @@ class Node(list):
 
     def remove(self):
         try:
-            brothers = self.Parent.children()
-            for i, n in enumerate(brothers):
+            siblings = self.Parent.children()
+            for i, n in enumerate(siblings):
                 if n is self:
-                    del brothers[i]
+                    del siblings[i]
                     return
         except AttributeError as error:
             if self.Parent is None:
@@ -1082,6 +1083,13 @@ class Node(list):
         nodes = self.group(Value='_skeleton')
         if self.value() == '_skeleton': nodes += [self]
         for n in nodes: n.reloadNodeData(filename)
+
+    def hasAnySkeletonAmongDescendants(self):
+        if _compareValue(self,'_skeleton'): return True
+        for n in self.children():
+            has_skeleton = n.hasAnySkeletonAmongDescendants()
+            if has_skeleton: return True
+        return False
 
 def _compareValue(node, Value):
     NodeValue = node.value()

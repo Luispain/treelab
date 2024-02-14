@@ -37,7 +37,7 @@ window_main_title = f'TreeLab ({__version__})'
 treelab_user_config = os.path.expanduser(os.path.join('~', '.treelab'))
 
 def get_user_theme():
-    user_theme = 'Monokai'
+    user_theme = 'Native'
     try:
         with open(treelab_user_config, 'r') as f:
             lines = f.readlines()
@@ -47,7 +47,7 @@ def get_user_theme():
     for theme in qtvsc.Theme:
         if theme.value['name'] == user_theme:
             return theme
-    return qtvsc.Theme.MONOKAI
+    return user_theme
             
     
             
@@ -161,65 +161,97 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QRadioButton,
     QMessageBox,
+    QCheckBox,
 )
 
 
 GUIpath = os.path.dirname(os.path.realpath(__file__))
 QTVSCpath = os.path.join(qtvsc.__file__.replace('__init__.py',''),'vscode','icons')
-sep = os.path.sep
-path_vline = os.path.join(GUIpath,'style','stylesheet-vline.png')
-path_more = os.path.join(GUIpath,'style','stylesheet-branch-more.png')
-path_end = os.path.join(GUIpath,'style','stylesheet-branch-end.png')
-path_closed = os.path.join(GUIpath,'style','stylesheet-branch-closed.png')
-path_open = os.path.join(GUIpath,'style','stylesheet-branch-open.png')
-style = f"""
-QTreeView::branch:has-siblings:!adjoins-item {{
-    border-image: url({path_vline}) 0;
-}}
 
-QTreeView::branch:has-siblings:adjoins-item {{
-    border-image: url({path_more}) 0;
-}}
 
-QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
-    border-image: url({path_end}) 0;
-}}
-"""
-style = style.replace('\\','/') # curiously required by Windows
-# print(style)
-# QTreeView {{
-#     background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
-# }}
-# QTreeView::branch:has-children:!has-siblings:closed,
-# QTreeView::branch:closed:has-children:has-siblings {{
-#         border-image: none;
-#         image: url(stylesheet-branch-closed.png);
-# }}
+class MyTreeView(QTreeView):
+    def __init__(self, parent=None ):
+        super(MyTreeView, self).__init__(parent)
+        self.model = QtGui.QStandardItemModel()
+        self.setModel(self.model)
+        self.setHeaderHidden(True)
+        self.setStyleSheet(parent.treestyle)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDragEnabled(True)
+        self.viewport().setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDefaultDropAction(QtCore.Qt.MoveAction)
 
-# QTreeView::branch:open:has-children:!has-siblings,
-# QTreeView::branch:open:has-children:has-siblings  {{
-#         border-image: none;
-#         image: url(stylesheet-branch-open.png);
-# }}
+    def dropEvent(self, event):
+        # verify if selected nodes have any skeleton
+        has_skeleton = False
+        indices = self.selectionModel().selectedIndexes()
+        for index in indices:
+            item = self.model.itemFromIndex(index)
+            if item.node_cgns.hasAnySkeletonAmongDescendants():
+                has_skeleton = True
+                break
+
+        index = self.indexAt(event.pos())
+        item = self.model.itemFromIndex(index)
+        if has_skeleton:
+            err_msg = 'Cannot move the selected nodes, since they '
+            err_msg+= 'and/or their children contains skeleton '
+            err_msg+= '(unloaded) data. Please load data before '
+            err_msg+= 'moving the nodes (hint: use key touch F5).'
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Forbidden opeation")
+            msg.setInformativeText(err_msg)
+            msg.setWindowTitle("Forbidden")
+            msg.exec_()
+            event.ignore()
+        
+        elif not index.isValid() and not index.parent().isValid():
+            # ignore if item is being dragged outside of main tree
+            event.ignore()
+
+        elif not hasattr(item, "node_cgns"):
+            event.ignore()
+
+        else:
+            super(MyTreeView, self).dropEvent(event)
+            
+    def dragEnterEvent(self, event):
+        index = self.indexAt(event.pos())
+        item = self.model.itemFromIndex(index)
+        if not hasattr(item, "node_cgns"):
+            event.ignore()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+        item = self.model.itemFromIndex(index)
+        if not hasattr(item, "node_cgns"):
+            event.ignore()
+        else:
+            super().dragMoveEvent(event)
+
+class CustomStandardItemModel(QtGui.QStandardItemModel):
+    def flags(self, index):
+        flags = super().flags(index)
+        if not index.parent().isValid():
+            # Disable dragging for items at root level
+            flags &= ~QtGui.Qt.ItemIsDragEnabled
+        return flags
 
 class MainWindow(QMainWindow):
     def __init__(self, filenames=[], only_skeleton=False, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
+        self.setWindowTitle(window_main_title)
         self.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
         self.fontPointSize = 12.
         self.only_skeleton = only_skeleton
+        self.max_nb_table_items = 2e4
         self.selectedNodesCGNS = []
-
-        # icon color picker
-        self.colors = dict()
-        # possible colors are in qtvsc.list_color_id()
-        requested_colors = ['icon.foreground', 'focusBorder']
-        for color in requested_colors:
-            icon = qtvsc.theme_icon(qtvsc.FaSolid.SQUARE_FULL, color)
-            pixmap = icon.pixmap(QtCore.QSize(12, 12))
-            image = pixmap.toImage()
-            self.colors[color] = image.pixelColor(6, 6)
 
 
         self.dock = QDockWidget('Please select a node...')
@@ -234,8 +266,7 @@ class MainWindow(QMainWindow):
         self.dock.VLayout.layout().addWidget(self.dock.node_toolbar)
 
 
-        self.dock.node_toolbar.button_update_node_data = QtGui.QAction(
-             qtvsc.theme_icon(qtvsc.FaSolid.UPLOAD, "icon.foreground"),
+        self.dock.node_toolbar.button_update_node_data = QtGui.QAction(None,
              "upload node(s) data from file to memory (F5)", self)
         self.dock.node_toolbar.button_update_node_data.setStatusTip(
             "upload node(s) and their children data from file (F5) of type DataArray_t from file (F5)")
@@ -244,8 +275,7 @@ class MainWindow(QMainWindow):
         key_update_node_data.activated.connect(self.update_node_data)
         self.dock.node_toolbar.button_update_node_data.triggered.connect(self.update_node_data)
 
-        self.dock.node_toolbar.button_unload_node_data_recursively = QtGui.QAction(
-            qtvsc.theme_icon(qtvsc.FaSolid.SORT_AMOUNT_DOWN, "icon.foreground"),
+        self.dock.node_toolbar.button_unload_node_data_recursively = QtGui.QAction(None,
             "free-up memory from data of node(s) (F6)", self)
         self.dock.node_toolbar.button_unload_node_data_recursively.setStatusTip(
             "free-up memory from data of selected node(s) and their children of type DataArray_t (F6)")
@@ -254,19 +284,12 @@ class MainWindow(QMainWindow):
         key_unload_node_data.activated.connect(self.unload_node_data_recursively)
         self.dock.node_toolbar.button_unload_node_data_recursively.triggered.connect(self.unload_node_data_recursively)
 
-
-        original_icon = qtvsc.theme_icon(qtvsc.FaSolid.EXTERNAL_LINK_ALT,
-                                         "icon.foreground")
-        pixmap = original_icon.pixmap(QtCore.QSize(32, 32))
-        transformed_pixmap = pixmap.transformed(QtGui.QTransform().rotate(180))
-        icon = QtGui.QIcon(transformed_pixmap)
-        self.dock.node_toolbar.button_replace_link = QtGui.QAction(icon ,"read link", self)
+        self.dock.node_toolbar.button_replace_link = QtGui.QAction(None, "read link", self)
         self.dock.node_toolbar.button_replace_link.setStatusTip("Read link of selected node(s) from file (must be Link_t)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_replace_link)
         self.dock.node_toolbar.button_replace_link.triggered.connect(self.replace_link)
 
-        self.dock.node_toolbar.button_modify_node_data = QtGui.QAction(
-            qtvsc.theme_icon(qtvsc.FaSolid.DOWNLOAD, "icon.foreground"),
+        self.dock.node_toolbar.button_modify_node_data = QtGui.QAction(None,
             "write selected node(s) in file (F8)", self)
         self.dock.node_toolbar.button_modify_node_data.setStatusTip("write selected node(s) in file (F8)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_modify_node_data)
@@ -276,30 +299,35 @@ class MainWindow(QMainWindow):
 
         self.dock.node_toolbar.addSeparator()
 
-        self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png") ,"add node(s) data to X plotter container (X)", self)
-        self.dock.node_toolbar.button_add_plot_x_container.setStatusTip("add node(s) data to X plotter container (key X)")
+        self.dock.node_toolbar.button_add_plot_x_container = QtGui.QAction(
+            QtGui.QIcon(GUIpath+"/icons/OwnIcons/x-16.png"),
+            "add node(s) data to X plotter container (X)", self)
+        self.dock.node_toolbar.button_add_plot_x_container.setStatusTip(
+            "add node(s) data to X plotter container (key X)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_x_container)
         key_add_plot_x_container = QtGui.QShortcut(QtGui.QKeySequence('X'), self)
         key_add_plot_x_container.activated.connect(self.add_selected_nodes_to_plot_x_container)
         self.dock.node_toolbar.button_add_plot_x_container.triggered.connect(self.add_selected_nodes_to_plot_x_container)
 
-        self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png") ,"add node(s) data to Y plotter container (X)", self)
-        self.dock.node_toolbar.button_add_plot_y_container.setStatusTip("add node(s) data to Y plotter container (key Y)")
+        self.dock.node_toolbar.button_add_plot_y_container = QtGui.QAction(
+            QtGui.QIcon(GUIpath+"/icons/OwnIcons/y-16.png"),
+            "add node(s) data to Y plotter container (Y)", self)
+        self.dock.node_toolbar.button_add_plot_y_container.setStatusTip(
+            "add node(s) data to Y plotter container (key Y)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_y_container)
         key_add_plot_y_container = QtGui.QShortcut(QtGui.QKeySequence('Y'), self)
         key_add_plot_y_container.activated.connect(self.add_selected_nodes_to_plot_y_container)
         self.dock.node_toolbar.button_add_plot_y_container.triggered.connect(self.add_selected_nodes_to_plot_y_container)
 
         # own: QtGui.QIcon(GUIpath+"/icons/OwnIcons/add-curve-16.png")
-        self.dock.node_toolbar.button_add_curve = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.GRAPH_LINE,
-                                                    "icon.foreground"),
-                                                    "add curve to plotter", self)
+        self.dock.node_toolbar.button_add_curve = QtGui.QAction(None,
+            "add curve to plotter", self)
         self.dock.node_toolbar.button_add_curve.setStatusTip("add curve to plotter")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_curve)
         self.dock.node_toolbar.button_add_curve.triggered.connect(self.add_curve)
 
-        self.dock.node_toolbar.button_draw_curves = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaRegular.EYE,
-                                                    "icon.foreground"),"draw all curves (P)", self)
+        self.dock.node_toolbar.button_draw_curves = QtGui.QAction(None,
+            "draw all curves (P)", self)
         self.dock.node_toolbar.button_draw_curves.setStatusTip("draw all curves (key P)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_draw_curves)
         key_add_draw_curves = QtGui.QShortcut(QtGui.QKeySequence('P'), self)
@@ -314,6 +342,14 @@ class MainWindow(QMainWindow):
         self.dock.VLayout.layout().addWidget(self.dock.plotter)
         self.dock.plotter.setVisible(False)
 
+        self.dock.pathLabel = QWidget(self)
+        self.dock.pathLabel.setLayout(QHBoxLayout())
+        self.dock.pathLabel.layout().addWidget(QLabel('Path:'))
+        self.dock.pathLabel.label = QLineEdit("please select a node...")
+        self.dock.pathLabel.label.setReadOnly(True)
+        self.dock.pathLabel.layout().addWidget(self.dock.pathLabel.label)
+        self.dock.VLayout.layout().addWidget(self.dock.pathLabel)
+        self.dock.pathLabel.setVisible(False)
 
 
         self.dock.typeEditor = QWidget(self)
@@ -325,6 +361,8 @@ class MainWindow(QMainWindow):
         self.dock.typeEditor.layout().addWidget(self.dock.typeEditor.lineEditor)
         self.dock.VLayout.layout().addWidget(self.dock.typeEditor)
         self.dock.typeEditor.setVisible(False)
+
+
 
         self.dock.dataDimensionsLabel = QLabel('Class: toto | Dims: tata')
         self.dock.VLayout.layout().addWidget(self.dock.dataDimensionsLabel)
@@ -348,76 +386,93 @@ class MainWindow(QMainWindow):
         self.createTable()
         self.dock.VLayout.layout().addWidget(self.table)
 
+        self.dock.tableShow = QWidget(self)
+        self.dock.tableShow.setLayout(QHBoxLayout())
+        self.dock.tableShow.layout().addWidget(QLabel('Always show data in table'))
+        self.dock.tableShow.check_box = QCheckBox()
+        self.dock.tableShow.check_box.setChecked(False)
+        self.dock.tableShow.check_box.stateChanged.connect(self.updateTable)
+        self.dock.tableShow.layout().addWidget(self.dock.tableShow.check_box)
+        self.dock.VLayout.layout().addWidget(self.dock.tableShow)
+        self.dock.tableShow.setVisible(False)
+
 
         # Create tab widget
         self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(True)
-        self.tab_widget.setMovable(True)
-        self.tab_widget.tabCloseRequested.connect(self.closeTab)
-        self.tab_widget.tabBarDoubleClicked.connect(self.tabDoubleClicked)
-        self.tab_widget.currentChanged.connect(self.handle_tab_changed)
+        self.TabBar = QtWidgets.QTabBar()
+        self.tab_widget.setTabBar(self.TabBar)
+        self.TabBar.setTabsClosable(True)
+        self.TabBar.setMovable(True)
+        self.TabBar.tabCloseRequested.connect(self.closeTab)
+        self.TabBar.tabBarDoubleClicked.connect(self.tabDoubleClicked)
+        self.TabBar.currentChanged.connect(self.handle_tab_changed)
+
+        # TODO uncomment this when able to share node_cgns between tabs (or windows)
+        # hint: https://gist.github.com/eyllanesc/42bcda52a14244445153153a33e7c0dd
+        # self.TabBar.setChangeCurrentOnDrag(True)
+        # self.TabBar.setAcceptDrops(True)
+        # self.setAcceptDrops(True)
+        
         self.setCentralWidget(self.tab_widget)
-
-        # add tabs
-        for fn in filenames: self.newTab(fn)
      
-        toolbar = QToolBar("Main toolbar")
-        self.addToolBar(QtCore.Qt.LeftToolBarArea, toolbar)
+        self.toolbar = QToolBar("Main toolbar")
+        self.addToolBar(QtCore.Qt.LeftToolBarArea, self.toolbar)
 
-        # icon saver:
+        # icon saver: (python -m qtvscodestyle.examples.icon_browser)
         # icon = qtvsc.theme_icon(qtvsc.FaRegular.MINUS_SQUARE, "icon.foreground")
         # button_toto = QtGui.QAction(icon ,"toto", self)
-        # toolbar.addAction(button_toto)
-        # pixmap = icon.pixmap(QtCore.QSize(12, 12))
+        # self.toolbar.addAction(button_toto)
+        # pixmap = icon.pixmap(QtCore.QSize(64, 64))
         # pixmap.save('minus_square.png')
 
         # icon = self.getColoredIcon(GUIpath+'/icons/icons8/icons8-coordinate-system-16.png',
         #                                   self.colors['focusBorder'])
         # button_toto = QtGui.QAction(icon ,"toto", self)
-        # toolbar.addAction(button_toto)
+        # self.toolbar.addAction(button_toto)
 
 
-        button_new = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.NEW_FILE,
-                                                    "icon.foreground") ,"new tab", self)
-        button_new.setStatusTip("Open a new tab with empty tree")
-        button_new.triggered.connect(self.newTab)
+        self.toolbar.button_new = QtGui.QAction(None, "new tab", self)
+        self.toolbar.button_new.setStatusTip("Open a new tab with empty tree")
+        self.toolbar.button_new.triggered.connect(self.newTab)
         key_newTab = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+T'), self)
         key_newTab.activated.connect(self.newTab)
-        toolbar.addAction(button_new)
+        self.toolbar.addAction(self.toolbar.button_new)
+        key_closeTab = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+W'), self)
+        key_closeTab.activated.connect(self.closeTab)
 
-        button_open = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.NEW_FOLDER,
-                                                     "icon.foreground") ,"open (Ctrl+O)", self)
-        button_open.setStatusTip("Open a tree from a file")
-        button_open.triggered.connect(self.openTree)
+
+        self.toolbar.button_open = QtGui.QAction(None,"open (Ctrl+O)", self)
+        self.toolbar.button_open.setStatusTip("Open a tree from a file")
+        self.toolbar.button_open.triggered.connect(self.openTree)
         key_openTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+O'), self)
         key_openTree.activated.connect(self.openTree)
-        toolbar.addAction(button_open)
+        self.toolbar.addAction(self.toolbar.button_open)
 
-        button_reopen = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.ISSUE_REOPENED,
-                                                     "icon.foreground") ,"Open again (Shift + F5)", self)
-        button_reopen.setStatusTip("Open again the current tree from file (Shift + F5)")
-        button_reopen.triggered.connect(self.reopenTree)
+        self.toolbar.button_reopen = QtGui.QAction(None,
+            "Open again (Shift + F5)", self)
+        self.toolbar.button_reopen.setStatusTip("Open again the current tree from file (Shift + F5)")
+        self.toolbar.button_reopen.triggered.connect(self.reopenTree)
         key_reopen = QtGui.QShortcut(QtGui.QKeySequence('Shift+F5'), self)
         key_reopen.activated.connect(self.reopenTree)
-        toolbar.addAction(button_reopen)
+        self.toolbar.addAction(self.toolbar.button_reopen)
 
-        button_save = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.SAVE,
-                                    "icon.foreground") ,"save (Ctrl+S)", self)
-        button_save.setStatusTip("Save the current tree")
-        button_save.triggered.connect(self.saveTree)
+        self.toolbar.button_save = QtGui.QAction(None,
+                                    "save (Ctrl+S)", self)
+        self.toolbar.button_save.setStatusTip("Save the current tree")
+        self.toolbar.button_save.triggered.connect(self.saveTree)
         key_saveTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+S'), self)
         key_saveTree.activated.connect(self.saveTree)
-        toolbar.addAction(button_save)
+        self.toolbar.addAction(self.toolbar.button_save)
 
-        button_saveAs = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.SAVE_AS,
-                                    "icon.foreground") ,"save as (Ctrl+Shift+S)", self)
-        button_saveAs.setStatusTip("Save the current tree as new file")
-        button_saveAs.triggered.connect(self.saveTreeAs)
+        self.toolbar.button_saveAs = QtGui.QAction(None,
+                                      "save as (Ctrl+Shift+S)", self)
+        self.toolbar.button_saveAs.setStatusTip("Save the current tree as new file")
+        self.toolbar.button_saveAs.triggered.connect(self.saveTreeAs)
         key_saveTreeAs = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+S'), self)
         key_saveTreeAs.activated.connect(self.saveTreeAs)
-        toolbar.addAction(button_saveAs)
+        self.toolbar.addAction(self.toolbar.button_saveAs)
 
-        toolbar.addSeparator()
+        self.toolbar.addSeparator()
 
         # TODO implement this more efficiently
         # button_zoomIn = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-in.png") ,"zoom in (+)", self)
@@ -425,39 +480,39 @@ class MainWindow(QMainWindow):
         # button_zoomIn.triggered.connect(self.zoomInTree)
         # key_zoomInTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Plus), self)
         # key_zoomInTree.activated.connect(self.zoomInTree)
-        # toolbar.addAction(button_zoomIn)
+        # self.toolbar.addAction(button_zoomIn)
 
         # button_zoomOut = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/magnifier-zoom-out.png") ,"zoom out (-)", self)
         # button_zoomOut.setStatusTip("Zoom out the tree (-)")
         # button_zoomOut.triggered.connect(self.zoomOutTree)
         # key_zoomOutTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Minus), self)
         # key_zoomOutTree.activated.connect(self.zoomOutTree)
-        # toolbar.addAction(button_zoomOut)
+        # self.toolbar.addAction(button_zoomOut)
 
-        button_expandAll = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.EXPAND_ALL,
-                                    "icon.foreground"),"expand all nodes", self)
-        button_expandAll.setStatusTip("Expand all the nodes of the tree")
-        button_expandAll.triggered.connect(self.expandAll)
-        toolbar.addAction(button_expandAll)
+        self.toolbar.button_expandAll = QtGui.QAction(None,
+            "expand all nodes", self)
+        self.toolbar.button_expandAll.setStatusTip("Expand all the nodes of the tree")
+        self.toolbar.button_expandAll.triggered.connect(self.expandAll)
+        self.toolbar.addAction(self.toolbar.button_expandAll)
 
         # button_expandZones = QtGui.QAction(QtGui.QIcon(GUIpath+"/icons/icons8/icons8-expand3-48") ,"expand to depth 3", self)
         # button_expandZones.setStatusTip("Expand up to three levels of the tree")
         # button_expandZones.triggered.connect(self.expandToZones)
-        # toolbar.addAction(button_expandZones)
+        # self.toolbar.addAction(button_expandZones)
 
-        button_collapseAll = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.COLLAPSE_ALL,
-                                    "icon.foreground") ,"collapse all nodes", self)
-        button_collapseAll.setStatusTip("Collapse all the nodes of the tree")
-        button_collapseAll.triggered.connect(self.collapseAll)
-        toolbar.addAction(button_collapseAll)
+        self.toolbar.button_collapseAll = QtGui.QAction(None,
+            "collapse all nodes", self)
+        self.toolbar.button_collapseAll.setStatusTip("Collapse all the nodes of the tree")
+        self.toolbar.button_collapseAll.triggered.connect(self.collapseAll)
+        self.toolbar.addAction(self.toolbar.button_collapseAll)
 
-        toolbar.addSeparator()
+        self.toolbar.addSeparator()
 
-        button_findNode = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.SEARCH,
-                                    "icon.foreground") ,"find node (Ctrl+F)", self)
-        button_findNode.setStatusTip("Find node using criteria based on Name, Value and Type (Ctrl+F)")
-        button_findNode.triggered.connect(self.findNodesTree)
-        toolbar.addAction(button_findNode)
+        self.toolbar.button_findNode = QtGui.QAction(None,
+            "find node (Ctrl+F)", self)
+        self.toolbar.button_findNode.setStatusTip("Find node using criteria based on Name, Value and Type (Ctrl+F)")
+        self.toolbar.button_findNode.triggered.connect(self.findNodesTree)
+        self.toolbar.addAction(self.toolbar.button_findNode)
         self.NameToBeFound = None
         self.ValueToBeFound = None
         self.TypeToBeFound = None
@@ -465,77 +520,73 @@ class MainWindow(QMainWindow):
         self.FoundNodes = []
         self.CurrentFoundNodeIndex = -1
 
-        button_findNextNode = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.SHARE,
-                                    "icon.foreground"),"find next node (F3)", self)
-        button_findNextNode.setStatusTip("Find next node (F3)")
-        button_findNextNode.triggered.connect(self.findNextNodeTree)
+        self.toolbar.button_findNextNode = QtGui.QAction(None,
+            "find next node (F3)", self)
+        self.toolbar.button_findNextNode.setStatusTip("Find next node (F3)")
+        self.toolbar.button_findNextNode.triggered.connect(self.findNextNodeTree)
         key_findNextNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F3), self)
         key_findNextNodeTree.activated.connect(self.findNextNodeTree)
-        toolbar.addAction(button_findNextNode)
+        self.toolbar.addAction(self.toolbar.button_findNextNode)
 
-        toolbar.addSeparator()
+        self.toolbar.addSeparator()
 
         # green icon : QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/plus") 
-        button_newNodeTree = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.PLUS,
-                                    "icon.foreground"),"New node (Ctrl+N)", self)
-        button_newNodeTree.setStatusTip("Create a new node attached to the selected node in tree (Ctrl+N)")
-        button_newNodeTree.triggered.connect(self.newNodeTree)
-        toolbar.addAction(button_newNodeTree)
+        self.toolbar.button_newNodeTree = QtGui.QAction(None,
+            "New node (Ctrl+N)", self)
+        self.toolbar.button_newNodeTree.setStatusTip("Create a new node attached to the selected node in tree (Ctrl+N)")
+        self.toolbar.button_newNodeTree.triggered.connect(self.newNodeTree)
+        self.toolbar.addAction(self.toolbar.button_newNodeTree)
 
         # red cross : QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/cross") 
-        button_deleteNodeTree = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.TIMES,
-                                    "icon.foreground"),"remove selected nodes (Supr)", self)
-        button_deleteNodeTree.setStatusTip("remove selected node (Supr)")
-        button_deleteNodeTree.triggered.connect(self.deleteNodeTree)
-        toolbar.addAction(button_deleteNodeTree)
+        self.toolbar.button_deleteNodeTree = QtGui.QAction(None,
+            "remove selected nodes (Supr)", self)
+        self.toolbar.button_deleteNodeTree.setStatusTip("remove selected node (Supr)")
+        self.toolbar.button_deleteNodeTree.triggered.connect(self.deleteNodeTree)
+        self.toolbar.addAction(self.toolbar.button_deleteNodeTree)
 
         # blue arrows : QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-switch.png")
-        button_swap = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.RANDOM,
-                                    "icon.foreground"), "swap selected nodes", self)
-        button_swap.setStatusTip("After choosing two nodes, swap their position in the tree")
-        button_swap.triggered.connect(self.swapNodes)
-        toolbar.addAction(button_swap)
+        self.toolbar.button_swap = QtGui.QAction(None,
+            "swap selected nodes", self)
+        self.toolbar.button_swap.setStatusTip("After choosing two nodes, swap their position in the tree")
+        self.toolbar.button_swap.triggered.connect(self.swapNodes)
+        self.toolbar.addAction(self.toolbar.button_swap)
 
-        button_copyNodeTree = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.COPY,
-                                    "icon.foreground"),"copy selected nodes (Ctrl+C)", self)
-        button_copyNodeTree.setStatusTip("copy selected nodes (Ctrl+C)")
-        button_copyNodeTree.triggered.connect(self.copyNodeTree)
-        toolbar.addAction(button_copyNodeTree)
+        self.toolbar.button_copyNodeTree = QtGui.QAction(None,
+            "copy selected nodes (Ctrl+C)", self)
+        self.toolbar.button_copyNodeTree.setStatusTip("copy selected nodes (Ctrl+C)")
+        self.toolbar.button_copyNodeTree.triggered.connect(self.copyNodeTree)
+        self.toolbar.addAction(self.toolbar.button_copyNodeTree)
         self.copiedNodes = []
         
-        button_cutNodeTree = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.CUT,
-                                    "icon.foreground"),"cut selected nodes (Ctrl+X)", self)
-        button_cutNodeTree.setStatusTip("cut selected nodes (Ctrl+X)")
-        button_cutNodeTree.triggered.connect(self.cutNodeTree)
-        toolbar.addAction(button_cutNodeTree)
+        self.toolbar.button_cutNodeTree = QtGui.QAction(None,
+            "cut selected nodes (Ctrl+X)", self)
+        self.toolbar.button_cutNodeTree.setStatusTip("cut selected nodes (Ctrl+X)")
+        self.toolbar.button_cutNodeTree.triggered.connect(self.cutNodeTree)
+        self.toolbar.addAction(self.toolbar.button_cutNodeTree)
 
-        button_pasteNodeTree = QtGui.QAction(qtvsc.theme_icon(qtvsc.FaSolid.PASTE,
-                                    "icon.foreground"),"paste nodes (Ctrl+V)", self)
-        button_pasteNodeTree.setStatusTip("Paste previously copied nodes at currently selected parent nodes (Ctrl+V)")
-        button_pasteNodeTree.triggered.connect(self.pasteNodeTree)
-        toolbar.addAction(button_pasteNodeTree)
+        self.toolbar.button_pasteNodeTree = QtGui.QAction(None,
+            "paste nodes (Ctrl+V)", self)
+        self.toolbar.button_pasteNodeTree.setStatusTip("Paste previously copied nodes at currently selected parent nodes (Ctrl+V)")
+        self.toolbar.button_pasteNodeTree.triggered.connect(self.pasteNodeTree)
+        self.toolbar.addAction(self.toolbar.button_pasteNodeTree)
 
-        toolbar.addSeparator()
-        button_theme = QtGui.QAction(qtvsc.theme_icon(qtvsc.Vsc.COLOR_MODE,
-                                                      "icon.foreground"),
-                                     "change interface color theme", self)
-        button_theme.setStatusTip("change interface color theme (will persist on next open of treelab)")
-        button_theme.triggered.connect(self.changeTheme)
-        toolbar.addAction(button_theme)
-
-
-        key_add_tab = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+T'), self)
-        key_add_tab.activated.connect(self.newTab)
+        self.toolbar.addSeparator()
+        self.toolbar.button_theme = QtGui.QAction(None,
+            "change interface color theme", self)
+        self.toolbar.button_theme.setStatusTip("change interface color theme (will persist on next open of treelab)")
+        self.toolbar.button_theme.triggered.connect(self.changeTheme)
+        self.toolbar.addAction(self.toolbar.button_theme)
 
 
         self.plot_x_container = []
         self.plot_y_container = []
         self.curves_container = []
 
+        self.setTheme()
+        self.registerTreestyle()
         self.setStatusBar(QStatusBar(self))
-
-        # Center the window on the screen
         self.center_window()
+        for fn in filenames: self.newTab(fn)
 
     def handle_tab_changed(self):
         self.selectionInfo()
@@ -548,6 +599,18 @@ class MainWindow(QMainWindow):
         qp.fillRect( img.rect(), color )
         qp.end()
         return QtGui.QIcon(img)
+
+    def getColoredQtvscIcon(self, qtvsc_id, color=''):
+        # Create a pixmap to draw the colored icon
+        qtvsc_icon = qtvsc.theme_icon(qtvsc_id, 'icon.foreground')
+        img = qtvsc_icon.pixmap(QtCore.QSize(64, 64))  # Adjust size as needed
+        qp = QtGui.QPainter(img)
+        qp.setCompositionMode(QtGui.QPainter.CompositionMode_SourceIn)
+        if not color: color = self.colors['icon.foreground']
+        qp.fillRect( img.rect(), color )
+        qp.end()
+        return QtGui.QIcon(img)
+
 
 
     def tabDoubleClicked(self, index):
@@ -577,18 +640,8 @@ class MainWindow(QMainWindow):
         tab_layout = QVBoxLayout()
         tab.setLayout(tab_layout)
 
-        # create QTreeView and associated Model
-        tab.tree = QTreeView(self)
-        tab.tree.model = QtGui.QStandardItemModel()
-        tab.tree.setHeaderHidden(True)
-        tab.tree.setModel(tab.tree.model)
-        tab.tree.setStyleSheet(style)
-        tab.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        tab.tree.setDragDropMode(QAbstractItemView.DragDrop)
-        tab.tree.setDragEnabled(True)
-        tab.tree.setAcceptDrops(True)
-        tab.tree.setDropIndicatorShown(True)
-        tab.tree.setDefaultDropAction(QtCore.Qt.MoveAction)
+
+        tab.tree = MyTreeView(self)
         tab.tree.selectionModel().selectionChanged.connect(self.selectionInfo)
         tab.tree.model.itemChanged.connect(self.updateNameOfNodeCGNS)
 
@@ -630,8 +683,9 @@ class MainWindow(QMainWindow):
         key_findNodesTree.activated.connect(self.findNodesTree)
 
 
-    def closeTab(self, index):
+    def closeTab(self, index=None):
         # Get the widget associated with the tab
+        if index is None: index = self.getTabIndex()
         tab = self.tab_widget.widget(index)
 
         # removes data associated to tab
@@ -671,24 +725,40 @@ class MainWindow(QMainWindow):
         self.move(window_position.topLeft())
 
     def changeTheme(self):
-        print('change theme dialog to be implemeted here')
-        dlg = ChangeThemeDialog()
+
+        try: current_theme = self.theme.value['name']
+        except: current_theme = 'Native'
+
+        def previewTheme():
+            previous_theme = get_user_theme()
+            new_theme = dlg.combo_box.currentText()
+            self.saveTheme(new_theme)
+            self.setTheme()
+            self.saveTheme(previous_theme)
+
+        dlg = ChangeThemeDialog(currently_selected=current_theme)
+        dlg.combo_box.currentIndexChanged.connect(previewTheme)
         if dlg.exec():
             new_theme = dlg.combo_box.currentText()
             for theme in qtvsc.Theme:
                 if theme.value['name'] == new_theme:
                     print(f'changing theme to {new_theme}')
-                    
-                    try:
-                        with open(treelab_user_config,'w') as f:
-                            f.write(new_theme)
-                    except BaseException as e:
-                        print('WARNING: could not edit treelab user config')
-
-                    self.setStyleSheet(qtvsc.load_stylesheet(theme))
+                    self.saveTheme(new_theme)
+                    self.setTheme()
+                    self.updateAllTreesStyles()
                     return
 
-                
+            # did not find a qtvsc theme, switching to Native
+            new_theme = 'Native'
+            warning_box = QMessageBox()
+            warning_box.setIcon(QMessageBox.Warning)
+            warning_box.setWindowTitle("Warning")
+            warning_box.setText("Reverting to Native style requires restarting treelab")
+            warning_box.setStandardButtons(QMessageBox.Ok)
+            warning_box.exec()
+            print(f'changing theme to {new_theme} on next restart')
+            self.saveTheme(new_theme)
+        self.setTheme()
 
 
     def get_x_from_curve_item(self, curve):
@@ -870,7 +940,7 @@ class MainWindow(QMainWindow):
                 msg.exec_()
                 break
 
-        self.selectionInfo( None )
+        self.selectionInfo()
         QApplication.restoreOverrideCursor()
 
     def update_node_data_and_children(self, node):
@@ -900,16 +970,16 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         for node in self.selectedNodesCGNS:
             self.update_node_data_and_children(node)
-        self.selectionInfo( None )
+        self.selectionInfo()
         QApplication.restoreOverrideCursor()
 
     def unload_data(self, node):
         if node.type() == 'DataArray_t':
             node.setValue('_skeleton')
-            item = node.QStandardItem
-            item.isStyleCGNSbeingModified = True
-            self.setStyleCGNS( item )
-            item.isStyleCGNSbeingModified = False
+            # item = node.QStandardItem
+            # item.isStyleCGNSbeingModified = True
+            # self.setStyleCGNS( item )
+            # item.isStyleCGNSbeingModified = False
 
     def unload_data_and_children(self, node):
         self.unload_data(node)
@@ -920,7 +990,12 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         for node in self.selectedNodesCGNS:
             self.unload_data_and_children(node)
-        self.selectionInfo( None )
+        tree = self.getQtTree()
+        indices = tree.selectionModel().selectedIndexes()
+        for index in indices:
+            item = tree.model.itemFromIndex(index)
+            self.setStyleCGNSrecursively(item)
+        self.selectionInfo()
         QApplication.restoreOverrideCursor()
 
     def replace_link(self):
@@ -929,7 +1004,18 @@ class MainWindow(QMainWindow):
             if node.type() != 'Link_t': continue
             item = node.QStandardItem
             path = node.path()
-            node.replaceLink()
+            try:
+                node.replaceLink()
+            except BaseException as e:
+                err_msg = ''.join(traceback.format_exception(type(e),e,e.__traceback__))
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText(err_msg)
+                msg.setWindowTitle("Error")
+                msg.exec_()
+                break
+
             node = self.getCGNSTree().getAtPath( path )
             item.node_cgns = node
             item.node_cgns.QStandardItem = item
@@ -937,7 +1023,7 @@ class MainWindow(QMainWindow):
             self.setStyleCGNS( item )
             item.isStyleCGNSbeingModified = False
             self.addTreeModelChildrenFromCGNSNode(item.node_cgns)
-        self.selectionInfo( None )
+        self.selectionInfo()
         QApplication.restoreOverrideCursor()
 
 
@@ -947,7 +1033,7 @@ class MainWindow(QMainWindow):
         for node in self.selectedNodesCGNS:
             for paste_node in self.copiedNodes:
                 paste_node = paste_node.copy(deep=True)
-                node.addChild(paste_node, override_brother_by_name=False)
+                node.addChild(paste_node, override_sibling_by_name=False)
                 paste_node = node.get(paste_node.name(),Depth=1)
                 parentitem = node.QStandardItem
                 paste_node.QStandardItem = QtGui.QStandardItem(paste_node.name())
@@ -976,14 +1062,31 @@ class MainWindow(QMainWindow):
 
     def copyNodeTree(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        self.copiedNodes = [n.copy(deep=True) for n in self.selectedNodesCGNS]
+        self.copiedNodes = []
+        will_copy = True
+        for n in self.selectedNodesCGNS: 
+            if n.hasAnySkeletonAmongDescendants():
+                err_msg = 'Cannot copy the selected nodes, since they '
+                err_msg+= 'and/or their children contains skeleton '
+                err_msg+= '(unloaded) data. Please load data before '
+                err_msg+= 'copying the nodes (hint: use key touch F5).'
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Forbidden opeation")
+                msg.setInformativeText(err_msg)
+                msg.setWindowTitle("Forbidden")
+                msg.exec_()
+                will_copy = False
+                break
+        if will_copy:
+            self.copiedNodes = [n.copy(deep=True) for n in self.selectedNodesCGNS]
         QApplication.restoreOverrideCursor()
 
 
     def cutNodeTree(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.copyNodeTree()
-        self.deleteNodeTree()
+        if self.copiedNodes: self.deleteNodeTree()
         QApplication.restoreOverrideCursor()
 
 
@@ -1015,8 +1118,7 @@ class MainWindow(QMainWindow):
                     NewValue = np.array(eval(NewValue,globals(),{}),order='F')
                     if len(NewValue.shape) == 0: NewValue == eval(NewValue,globals(),{})
                 except BaseException as e:
-                    err_msg = ''.join(traceback.format_exception(etype=type(e),
-                                      value=e, tb=e.__traceback__))
+                    err_msg = ''.join(traceback.format_exception(type(e),e,e.__traceback__))
 
                     msg = QMessageBox()
                     msg.setIcon(QMessageBox.Critical)
@@ -1043,7 +1145,7 @@ class MainWindow(QMainWindow):
 
                 parentnode = item.node_cgns
                 newnode = cgns.castNode([NewName, NewValue, [], NewType])
-                newnode.attachTo(parentnode, override_brother_by_name=False)
+                newnode.attachTo(parentnode, override_sibling_by_name=False)
 
                 newitem = newnode.QStandardItem = QtGui.QStandardItem(newnode.name())
                 item.isStyleCGNSbeingModified = True
@@ -1135,7 +1237,7 @@ class MainWindow(QMainWindow):
                 index = tree.model.indexFromItem(node.QStandardItem)
                 tree.setCurrentIndex(index)
             tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
-            self.selectionInfo(None)
+            self.selectionInfo()
             self.CurrentFoundNodeIndex = -1
             # QApplication.restoreOverrideCursor()
 
@@ -1256,11 +1358,23 @@ class MainWindow(QMainWindow):
             item.node_cgns.setName(item.text())
             return
 
-        node = [n for n in self.selectedNodesCGNS if n.name() == item.text()][0]
+        try:
+            node = [n for n in self.selectedNodesCGNS if n.name() == item.text()][0]
+        except IndexError:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Error")
+            msg.setInformativeText(('CGNS data was not migrated. '
+                'This will cause unexpected behavior'))
+            msg.setWindowTitle("Error")
+            msg.exec_()
+            return
+
         item.node_cgns = node
         parentItem = item.parent()
         if parentItem:
-            item.node_cgns.moveTo(parentItem.node_cgns, position=item.row())
+            item.node_cgns.moveTo(parentItem.node_cgns, position=item.row(),
+                                  override_sibling_by_name=False)
         elif item.node_cgns.Parent:
             item.node_cgns.dettach()
 
@@ -1320,14 +1434,18 @@ class MainWindow(QMainWindow):
 
         if self.selectedNodesCGNS:
             self.dock.node_toolbar.setVisible(True)
+            self.dock.pathLabel.setVisible(True)
             self.dock.typeEditor.setVisible(True)
+            self.dock.tableShow.setVisible(True)
             self.dock.plotter.setVisible(True)
             self.dock.dataDimensionsLabel.setVisible(True)
             self.dock.dataSlicer.setVisible(True)
             self.table.setVisible(True)
         else:
             self.dock.node_toolbar.setVisible(False)
+            self.dock.pathLabel.setVisible(False)
             self.dock.typeEditor.setVisible(False)
+            self.dock.tableShow.setVisible(False)
             self.dock.plotter.setVisible(False)
             self.dock.dataDimensionsLabel.setVisible(False)
             self.dock.dataSlicer.setVisible(False)
@@ -1342,6 +1460,7 @@ class MainWindow(QMainWindow):
         try: node = self.selectedNodesCGNS[0]
         except IndexError: node = None
 
+
         if node is None:
             self.table.setRowCount(1)
             self.table.setColumnCount(1)
@@ -1350,8 +1469,29 @@ class MainWindow(QMainWindow):
             self.dock.setWindowTitle('please select a node')
             self.table.isBeingUpdated = False
             return
+        
+        def show_big_array_warning():
+            msg_bigarray = 'Too big array for efficient table creation.\n'
+            msg_bigarray+= 'If you still want to show it, please\n'
+            msg_bigarray+= 'check the option "Always show data in table"\n'
+            msg_bigarray+= 'shown below. But beware, creating\n'
+            msg_bigarray+= 'the table may take a while\n'
+
+            self.table.setRowCount(1)
+            self.table.setColumnCount(1)
+            tableItem = QTableWidgetItem(msg_bigarray)
+            self.table.setItem(0,0, tableItem)
+
+            self.table.resizeColumnsToContents()
+            self.table.resizeRowsToContents()
+            self.table.isBeingUpdated = False
+
+
+            
+
 
         self.dock.setWindowTitle(node.name())
+        self.dock.pathLabel.label.setText(node.path())
         self.dock.typeEditor.lineEditor.setText(node.type())
         value = node.value()
         if isinstance(value, np.ndarray):
@@ -1364,8 +1504,13 @@ class MainWindow(QMainWindow):
             Nj = value.shape[1] if dim > 1 else 1
             Nk = value.shape[2] if dim > 2 else 1
 
+
             if dim == 1:
                 self.dock.dataSlicer.setVisible(False)
+                if Ni > self.max_nb_table_items and not self.dock.tableShow.check_box.isChecked():
+                    show_big_array_warning()
+                    return
+                
                 self.table.setRowCount(Ni)
                 self.table.setColumnCount(1)
                 for i in range(Ni):
@@ -1373,6 +1518,11 @@ class MainWindow(QMainWindow):
 
             elif dim == 2:
                 self.dock.dataSlicer.setVisible(False)
+                if Ni*Nj > self.max_nb_table_items and not self.dock.tableShow.check_box.isChecked():
+                    show_big_array_warning()
+                    return
+
+
                 self.table.setRowCount(Ni)
                 self.table.setColumnCount(Nj)
 
@@ -1387,18 +1537,32 @@ class MainWindow(QMainWindow):
                 if planeIndex == 'k':
                     self.dock.dataSlicer.sliceSelector.setMaximum(Nk-1)
                     self.dock.dataSlicer.sliceSelector.setMinimum(-Nk)
+                    if Ni*Nj > self.max_nb_table_items and not self.dock.tableShow.check_box.isChecked():
+                        show_big_array_warning()
+                        return
+
                     self.table.setRowCount(Ni)
                     self.table.setColumnCount(Nj)
 
                 elif planeIndex == 'j':
                     self.dock.dataSlicer.sliceSelector.setMaximum(Nj-1)
                     self.dock.dataSlicer.sliceSelector.setMinimum(-Nj)
+                    if Ni*Nk > self.max_nb_table_items and not self.dock.tableShow.check_box.isChecked():
+                        show_big_array_warning()
+                        return
+
+
                     self.table.setRowCount(Ni)
                     self.table.setColumnCount(Nk)
 
                 else:
                     self.dock.dataSlicer.sliceSelector.setMaximum(Ni-1)
                     self.dock.dataSlicer.sliceSelector.setMinimum(-Ni)
+
+                    if Nk*Nj > self.max_nb_table_items and not self.dock.tableShow.check_box.isChecked():
+                        show_big_array_warning()
+                        return
+
                     self.table.setRowCount(Nj)
                     self.table.setColumnCount(Nk)
 
@@ -1641,8 +1805,7 @@ class MainWindow(QMainWindow):
 
 
         except BaseException as e:
-            err_msg = ''.join(traceback.format_exception(etype=type(e),
-                                value=e, tb=e.__traceback__))
+            err_msg = ''.join(traceback.format_exception(type(e),e, e.__traceback__))
 
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
@@ -1710,6 +1873,13 @@ class MainWindow(QMainWindow):
                 item.isStyleCGNSbeingModified = False
         # QApplication.restoreOverrideCursor()
 
+    def setStyleCGNSrecursively(self,MainItem):
+        self.setStyleCGNS(MainItem)
+        node = MainItem.node_cgns
+        for child in node.children():
+            item = child.QStandardItem
+            self.setStyleCGNSrecursively(item)
+
     def setStyleCGNS(self, MainItem):
 
         def putIcon(pathToIconImage):
@@ -1723,8 +1893,7 @@ class MainWindow(QMainWindow):
         font.setPointSize( int(self.fontPointSize) )
         font.setBold(False)
         font.setItalic(False)
-        # brush = QtGui.QBrush()
-        # brush.setColor(QtGui.QColor("#cccccc")) # tree default color
+        brush = QtGui.QBrush()
         iconSize = int(self.fontPointSize*1.333)
         # self.tree.setIconSize(QtCore.QSize(iconSize,iconSize))
         MainItem.setSizeHint(QtCore.QSize(int(iconSize*1.75),int(iconSize*1.75)))
@@ -1743,12 +1912,18 @@ class MainWindow(QMainWindow):
         elif node_type == 'Zone_t':
             putIcon(GUIpath+"/icons/icons8/zone-2D.png")
             font.setBold(True)
-            # brush.setColor(QtGui.QColor("#83acc9"))
+            brush = QtGui.QBrush()
+            brush.setColor(QtGui.QColor("#5d8bb6"))
+            MainItem.setForeground(brush)
         elif node_type == 'CGNSBase_t':
+            color = '#6cb369' if self.isDark else '#1d6419'
+            MainItem.setIcon(self.getColoredIcon(
+                GUIpath+"/icons/icons8/icons8-box-32.png", color))
             font.setBold(True)
             font.setItalic(True)
-            # brush.setColor(QtGui.QColor("#6cb369"))
-            putIcon(GUIpath+"/icons/icons8/icons8-box-32.png")
+            brush.setColor(QtGui.QColor(color))
+            MainItem.setForeground(brush)
+
         elif node_type == 'GridCoordinates_t':
             MainItem.setIcon(self.getColoredIcon(GUIpath+'/icons/icons8/icons8-coordinate-system-16.png'))
         elif node.name() == 'CoordinateX':
@@ -1766,16 +1941,19 @@ class MainWindow(QMainWindow):
             font.setBold(True)
             font.setItalic(True)
             # brush.setColor(QtGui.QColor("blue"))
+            
         elif node_type in ('Family_t','FamilyName_t','FamilyBC_t','AdditionalFamilyName_t'):
-            putIcon(GUIpath+"/icons/icons8/icons8-famille-homme-femme-26.png")
+            color = '#c5702a' if self.isDark else '#773804'
+            MainItem.setIcon(self.getColoredIcon(
+                GUIpath+"/icons/icons8/icons8-famille-homme-femme-26.png", color))
             font.setItalic(True)
-            # brush = QtGui.QBrush()
-            # brush.setColor(QtGui.QColor("#f59e84"))
+            brush.setColor(QtGui.QColor(color))
+            MainItem.setForeground(brush)
         elif node_type == 'ConvergenceHistory_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/system-monitor.png")
             font.setItalic(True)
         elif node_type == 'ZoneGridConnectivity_t':
-            putIcon(GUIpath+"/icons/fugue-icons-3.5.6/plug-disconnect.png")
+            MainItem.setIcon(self.getColoredIcon(GUIpath+"/icons/fugue-icons-3.5.6/plug-disconnect.png"))
         elif node_type == 'ReferenceState_t':
             putIcon(GUIpath+"/icons/fugue-icons-3.5.6/script-attribute-r.png")
             font.setItalic(True)
@@ -1783,23 +1961,78 @@ class MainWindow(QMainWindow):
             putIcon(GUIpath+"/icons/icons8/Sigma.png")
             font.setItalic(True)
         elif node_type == 'UserDefinedData_t':
-            putIcon(GUIpath+"/icons/fugue-icons-3.5.6/user-silhouette.png")
+            MainItem.setIcon(self.getColoredIcon(GUIpath+"/icons/fugue-icons-3.5.6/user-silhouette.png"))
             font.setItalic(True)
-            # brush.setColor(QtGui.QColor("#bfbfbf"))
+            color = QtGui.QColor(self.colors['icon.foreground'])
+            color.setAlphaF(0.5)
+            brush.setColor(color)
+            MainItem.setForeground(brush)
         elif node_type == 'ZoneBC_t':
-            icon = qtvsc.theme_icon(qtvsc.FaSolid.BORDER_STYLE, "icon.foreground")
-            MainItem.setIcon(icon)
+            MainItem.setIcon(self.getColoredQtvscIcon(qtvsc.FaSolid.BORDER_STYLE))
 
         if isinstance(node_value,str) and node_value == '_skeleton':
-            putIcon(GUIpath+"/icons/fugue-icons-3.5.6/arrow-circle-double.png")
+            MainItem.setIcon(self.getColoredQtvscIcon(qtvsc.FaSolid.UPLOAD))
             font.setBold(True)
             font.setItalic(True)
-            # brush.setColor(QtGui.QColor("orange"))
 
 
         # MainItem.setForeground(brush)
         MainItem.setFont(font)
         MainItem.isStyleCGNSbeingModified = False
+
+
+    def registerTreestyle(self):
+        path_vline = os.path.join(GUIpath,'style','stylesheet-vline.png')
+        path_more = os.path.join(GUIpath,'style','stylesheet-branch-more.png')
+        path_end = os.path.join(GUIpath,'style','stylesheet-branch-end.png')
+        path_closed = os.path.join(GUIpath,'icons','qtvsc','plus_square.png')
+        path_open = os.path.join(GUIpath,'icons','qtvsc','minus_square.png')
+        # QTreeView::branch:has-siblings:!adjoins-item {{
+        #     border-image: url({path_vline}) 0;
+        # }}
+        style = f"""
+
+        QTreeView::branch:has-siblings:adjoins-item {{
+            border-image: url({path_more}) 0;
+        }}
+
+        QTreeView::branch:!has-children:!has-siblings:adjoins-item {{
+            border-image: url({path_end}) 0;
+        }}
+        
+        QTreeView::branch:has-children:!has-siblings:closed,
+        QTreeView::branch:closed:has-children:has-siblings {{
+                border-image: none;
+                image: url({path_closed});
+        }}
+
+        QTreeView::branch:open:has-children:!has-siblings,
+        QTreeView::branch:open:has-children:has-siblings  {{
+                border-image: none;
+                image: url({path_open});
+        }}
+        """
+        style = style.replace('\\','/') # curiously required by Windows
+        # gradient color for background
+        # QTreeView {{
+        #     background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #4a4a4a, stop: 1 #2e2e2e);
+        # }}
+        self.treestyle = style
+
+    def updateAllTreesStyles(self):
+        self.registerTreestyle()
+        def iterate_tree(index):
+            item = model.itemFromIndex(index)
+            self.setStyleCGNS(item)
+            for row in range(model.rowCount(index)):
+                child_index = model.index(row, 0, index)
+                iterate_tree(child_index)
+        
+        for tab in self.getTabs():
+            model = tab.tree.model
+            root_index = model.indexFromItem(tab.t.QStandardItem)
+            iterate_tree(root_index)
+            tab.setStyleSheet(self.treestyle)
 
     def updateModel(self, tab):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
@@ -1816,7 +2049,7 @@ class MainWindow(QMainWindow):
         for node in nodes:
             MainItem = node.QStandardItem = QtGui.QStandardItem(node.name())
             MainItem.node_cgns = node
-            node.Parent.QStandardItem.appendRow([node.QStandardItem])
+            node.Parent.QStandardItem.appendRow([MainItem])
             self.setStyleCGNS(MainItem)
         tab.tree.expandToDepth(1)
         QApplication.restoreOverrideCursor()
@@ -1835,6 +2068,98 @@ class MainWindow(QMainWindow):
                     child.node_cgns.item = child
                     self.updateModelChildrenFromItem(child)
 
+    def updateColorsBasedOnTheme(self):
+        try:
+            native_theme = self.theme == 'Native'
+        except:
+            native_theme = False
+        if native_theme:
+            palette = self.palette()
+            default_fg_color = palette.color(palette.ColorGroup.Normal, palette.ColorRole.WindowText)
+            self.colors = {'icon.foreground':default_fg_color}
+        else:
+            # icon color picker
+            # possible colors are in qtvsc.list_color_id()
+            icon = qtvsc.theme_icon(qtvsc.FaSolid.SQUARE_FULL, 'icon.foreground')
+            pixmap = icon.pixmap(QtCore.QSize(12, 12))
+            image = pixmap.toImage()
+            self.colors = {'icon.foreground':image.pixelColor(6, 6)}
+        if self.colors['icon.foreground'].lightnessF() > 0.5:
+            self.isDark = True
+        else:
+            self.isDark = False
+
+    def saveTheme(self, new_theme):
+        try: theme_name = new_theme.value['name']
+        except: theme_name = new_theme
+
+        try:
+            with open(treelab_user_config,'w') as f:
+                f.write(theme_name)
+        except:
+            print('WARNING: could not edit treelab user config')
+
+    def setTheme(self):
+        self.theme = get_user_theme()
+        if self.theme != 'Native': self.setStyleSheet(qtvsc.load_stylesheet(self.theme))
+        self.updateColorsBasedOnTheme()
+        self.createIconsOfButtons()
+
+    def createIconsOfButtons(self):
+        # node_toolbar dockable buttons
+        self.dock.node_toolbar.button_update_node_data.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.UPLOAD))
+        self.dock.node_toolbar.button_unload_node_data_recursively.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.SORT_AMOUNT_DOWN))
+        
+        original_icon = self.getColoredQtvscIcon(qtvsc.FaSolid.EXTERNAL_LINK_ALT)
+        pixmap = original_icon.pixmap(QtCore.QSize(64, 64))
+        transformed_pixmap = pixmap.transformed(QtGui.QTransform().rotate(180))
+        self.dock.node_toolbar.button_replace_link.setIcon(
+            QtGui.QIcon(transformed_pixmap))
+        
+        self.dock.node_toolbar.button_modify_node_data.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.DOWNLOAD))
+
+        self.dock.node_toolbar.button_add_curve.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.GRAPH_LINE))
+        self.dock.node_toolbar.button_draw_curves.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaRegular.EYE))
+        
+        # toolbar buttons
+        self.toolbar.button_new.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.NEW_FILE))
+        self.toolbar.button_open.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.NEW_FOLDER))
+        self.toolbar.button_reopen.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.ISSUE_REOPENED))
+        self.toolbar.button_save.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.SAVE))
+        self.toolbar.button_saveAs.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.SAVE_AS))
+        self.toolbar.button_expandAll.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.EXPAND_ALL))
+        self.toolbar.button_collapseAll.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.COLLAPSE_ALL))
+        self.toolbar.button_findNode.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.SEARCH))
+        self.toolbar.button_findNextNode.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.SHARE))
+        self.toolbar.button_newNodeTree.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.PLUS))
+        self.toolbar.button_deleteNodeTree.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.TIMES))
+        self.toolbar.button_swap.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.RANDOM))
+        self.toolbar.button_copyNodeTree.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.COPY))
+        self.toolbar.button_cutNodeTree.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.CUT))
+        self.toolbar.button_pasteNodeTree.setIcon(
+            self.getColoredQtvscIcon(qtvsc.FaSolid.PASTE))
+        self.toolbar.button_theme.setIcon(
+            self.getColoredQtvscIcon(qtvsc.Vsc.COLOR_MODE))
+        
 class TableWithCopy(QTableWidget):
     """
     this class extends QTableWidget
@@ -1921,7 +2246,7 @@ class FindNodeDialog(QDialog):
         self.setLayout(self.layout)
 
 class ChangeThemeDialog(QDialog):
-    def __init__(self):
+    def __init__(self, currently_selected='(select a theme)'):
         super().__init__()
 
         self.setWindowTitle("Change color theme ")
@@ -1931,12 +2256,16 @@ class ChangeThemeDialog(QDialog):
         self.layout = QVBoxLayout(self)
 
         # Create a label
-        self.label = QLabel("Select an option:")
+        self.label = QLabel("Select an option:\n(full theme changes requires restart)")
 
         # Create a combobox
         self.combo_box = QComboBox()
+        self.combo_box.addItem('Native')
         for theme in qtvsc.Theme:
             self.combo_box.addItem(theme.value['name'])
+
+        self.combo_box.setCurrentText(currently_selected)
+        # self.combo_box.currentIndexChanged.connect(self.previewTheme)
 
         # Add the label and combobox to the layout
         self.layout.addWidget(self.label)
@@ -1952,6 +2281,17 @@ class ChangeThemeDialog(QDialog):
     def get_selected_option(self):
         # Get the selected option from the combobox
         return self.combo_box.currentText()
+    
+    # def previewTheme(self):
+    #     new_theme=self.get_selected_option()
+    #     for theme in qtvsc.Theme:
+    #         if theme.value['name'] == new_theme:
+    #             print(f'changing theme to {new_theme}')
+    #             ?.saveTheme(new_theme)
+    #             ?.setTheme()
+    #             return
+
+
 
 class NewNodeDialog(QDialog):
     def __init__(self, NodeParentLabel):
@@ -2009,7 +2349,7 @@ class TabEditionDialog(QDialog):
 
 def launch():
     
-    print(sys.argv)
+    # print(sys.argv)
     args = sys.argv[1:] 
 
     filenames = [f for f in args if f.endswith('.cgns') or \
@@ -2019,8 +2359,7 @@ def launch():
 
     app = QApplication( sys.argv )
     app.setWindowIcon(QtGui.QIcon(os.path.join(GUIpath,"icons","fugue-icons-3.5.6","tree")))
-    app.setStyleSheet(qtvsc.load_stylesheet(get_user_theme()))
-    print('only_skeleton=',only_skeleton, " (use -s to set to True)")
+    print('only_skeleton =',only_skeleton, " (use -s to set to True)")
     MW = MainWindow( filenames, only_skeleton )
     MW.resize(650, 815)    
     MW.show()
