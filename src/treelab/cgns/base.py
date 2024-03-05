@@ -54,8 +54,11 @@ class Base(Node):
     def zones(self):
         return [c for c in self.children() if isinstance(c, Zone)]
 
+    def setCellDimension(self, CellDimension):
+        self.value()[0] = CellDimension
+    
     def setPhysicalDimension(self, PhysicalDimension):
-        self.value()[0] = PhysicalDimension
+        self.value()[1] = PhysicalDimension
 
     def isStructured(self):
         return all([zone.isStructured() for zone in self.zones()])
