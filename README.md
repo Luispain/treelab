@@ -48,7 +48,7 @@ export PATH=$PATH:~/.local/bin
 Usage
 =====
 
-You may use the API of TreeLab using a python script:
+You may use the API of TreeLab using a python script :
 
 ```python
 from treelab import cgns
