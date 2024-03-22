@@ -251,8 +251,6 @@ class MainWindow(QMainWindow):
         self.fontPointSize = 12.
         self.only_skeleton = only_skeleton
         self.max_nb_table_items = 2e4
-        self.selectedNodesCGNS = []
-
 
         self.dock = QDockWidget('Please select a node...')
         self.dock.setFeatures(QDockWidget.DockWidgetFloatable |
@@ -872,7 +870,7 @@ class MainWindow(QMainWindow):
 
     def add_selected_nodes_to_plot_x_container(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             path = 'tab%d@'%self.getTabIndex()+node.path().replace('CGNSTree/','')
             if path not in self.plot_x_container:
                 self.plot_x_container += [ path ]
@@ -886,7 +884,7 @@ class MainWindow(QMainWindow):
 
     def add_selected_nodes_to_plot_y_container(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             path = 'tab%d@'%self.getTabIndex()+node.path().replace('CGNSTree/','')
             if path not in self.plot_y_container:
                 self.plot_y_container += [ path ]
@@ -915,7 +913,7 @@ class MainWindow(QMainWindow):
             msg.exec_()
             return
 
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             try:
                 node.saveThisNodeOnly( t.file )
             except TypeError as e:
@@ -968,7 +966,7 @@ class MainWindow(QMainWindow):
 
     def update_node_data(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             self.update_node_data_and_children(node)
         self.selectionInfo()
         QApplication.restoreOverrideCursor()
@@ -988,7 +986,7 @@ class MainWindow(QMainWindow):
 
     def unload_node_data_recursively(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             self.unload_data_and_children(node)
         tree = self.getQtTree()
         indices = tree.selectionModel().selectedIndexes()
@@ -1000,7 +998,7 @@ class MainWindow(QMainWindow):
 
     def replace_link(self):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for node in self.getSelectedNodes():
             if node.type() != 'Link_t': continue
             item = node.QStandardItem
             path = node.path()
@@ -1030,14 +1028,14 @@ class MainWindow(QMainWindow):
     def pasteNodeTree(self):
         if not self.copiedNodes: return
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        for node in self.selectedNodesCGNS:
+        for parentitem in self.getSelectedItems():
+            node = parentitem.node_cgns
             for paste_node in self.copiedNodes:
                 paste_node = paste_node.copy(deep=True)
                 node.addChild(paste_node, override_sibling_by_name=False)
                 paste_node = node.get(paste_node.name(),Depth=1)
-                parentitem = node.QStandardItem
-                paste_node.QStandardItem = QtGui.QStandardItem(paste_node.name())
-                item = paste_node.QStandardItem
+                item = QtGui.QStandardItem(paste_node.name())
+                paste_node.QStandardItem = item
                 item.node_cgns = paste_node
                 item.node_cgns.QStandardItem = item
                 item.isStyleCGNSbeingModified = True
@@ -1064,7 +1062,7 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.copiedNodes = []
         will_copy = True
-        for n in self.selectedNodesCGNS: 
+        for n in self.getSelectedNodes(): 
             if n.hasAnySkeletonAmongDescendants():
                 err_msg = 'Cannot copy the selected nodes, since they '
                 err_msg+= 'and/or their children contains skeleton '
@@ -1079,7 +1077,7 @@ class MainWindow(QMainWindow):
                 will_copy = False
                 break
         if will_copy:
-            self.copiedNodes = [n.copy(deep=True) for n in self.selectedNodesCGNS]
+            self.copiedNodes = [n.copy(deep=True) for n in self.getSelectedNodes()]
         QApplication.restoreOverrideCursor()
 
 
@@ -1359,7 +1357,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            node = [n for n in self.selectedNodesCGNS if n.name() == item.text()][0]
+            node = [n for n in self.getSelectedNodes() if n.name() == item.text()][0]
         except IndexError:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
@@ -1418,8 +1416,13 @@ class MainWindow(QMainWindow):
 
     def getTreeSelectedIndexes(self): return self.getTreeSelectionModel().selectedIndexes()
 
+    def getSelectedItems(self):
+        return [self.getTreeItemFromIndex(i) for i in self.getTreeSelectedIndexes()]
+
+    def getSelectedNodes(self):
+        return [self.getTreeItemFromIndex(i).node_cgns for i in self.getTreeSelectedIndexes()]
+
     def selectionInfo(self):
-        self.selectedNodesCGNS = []
         try:
             indexes = self.getTreeSelectedIndexes()
         except:
@@ -1428,11 +1431,8 @@ class MainWindow(QMainWindow):
         MSG = '%d nodes selected'%len(indexes)
         self.setStatusTip( MSG )
         self.statusBar().showMessage( MSG )
-        for index in indexes:
-            item = self.getTreeItemFromIndex(index)
-            self.selectedNodesCGNS.append( item.node_cgns )
 
-        if self.selectedNodesCGNS:
+        if indexes:
             self.dock.node_toolbar.setVisible(True)
             self.dock.pathLabel.setVisible(True)
             self.dock.typeEditor.setVisible(True)
@@ -1457,7 +1457,7 @@ class MainWindow(QMainWindow):
     def updateTable(self):
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.table.isBeingUpdated = True
-        try: node = self.selectedNodesCGNS[0]
+        try: node = self.getSelectedNodes()[0]
         except IndexError: node = None
 
 
