@@ -1036,7 +1036,6 @@ class Node(list):
         return Container
 
     def getParameters(self, ContainerName, transform_numpy_scalars=False):
-        print('totoooooooo')
         Container = self.get( Name=ContainerName, Depth=1 )
         ParamsDict = dict()
         ParamsList = []
