@@ -183,6 +183,71 @@ def test_getParameters(filename=''):
         msg+= pprint.pformat(get_params)
         raise ValueError(msg)
 
+def test_getParameters(filename=''):
+    t = cgns.Node(Name='main')
+
+    def f(x,y): return x+y
+
+    set_params = dict(
+        none=None,
+        Fun=f,
+        EmptyList=[],
+        EmptyDict={},
+        EmptyTuple=(),
+        NumpyArray=np.array([0,1,2]),
+        BooleanList=[True,False,False],
+        Boolean=True,
+        Int=12,
+        IntList=[1,2,3,4],
+        Float=13.0,
+        FloatList=[1.0,2.0,3.0],
+        Str='jamon',
+        StrList=['croquetas', 'tortilla'],
+        Dict={'Str':'paella','Int':12},
+        DictOfDict=dict(SecondDict={'Str':'gazpacho','Int':12}),
+        ListOfDict=[{'Str':'pescaito','Int':12},
+                    {'Str':'calamares','Int':12},
+                    {'Str':'morcilla','Int':12}],
+        Node=cgns.Node(Name='n1'),
+        DictOfNode={'a':cgns.Node(Name='n5'), 'b':cgns.Node(Name='n6')},
+        ListOfNode=[cgns.Node(Name='n2'),cgns.Node(Name='n3'),cgns.Node(Name='n4')],
+        )
+
+    expected="{'Boolean': 1,\n"
+    expected+=" 'BooleanList': array([1, 0, 0], dtype=int32),\n"
+    expected+=" 'Dict': {'Int': 12, 'Str': 'paella'},\n"
+    expected+=" 'DictOfDict': {'SecondDict': {'Int': 12, 'Str': 'gazpacho'}},\n"
+    expected+=" 'DictOfNode': {'a': None, 'b': None},\n"
+    expected+=" 'EmptyDict': None,\n"
+    expected+=" 'EmptyList': None,\n"
+    expected+=" 'EmptyTuple': None,\n"
+    expected+=" 'Float': 13.0,\n"
+    expected+=" 'FloatList': array([1., 2., 3.]),\n"
+    expected+=" 'Fun': None,\n"
+    expected+=" 'Int': 12,\n"
+    expected+=" 'IntList': array([1, 2, 3, 4], dtype=int32),\n"
+    expected+=" 'ListOfDict': [{'Int': 12, 'Str': 'pescaito'},\n"
+    expected+="                {'Int': 12, 'Str': 'calamares'},\n"
+    expected+="                {'Int': 12, 'Str': 'morcilla'}],\n"
+    expected+=" 'ListOfNode': None,\n"
+    expected+=" 'Node': None,\n"
+    expected+=" 'NumpyArray': array([0, 1, 2]),\n"
+    expected+=" 'Str': 'jamon',\n"
+    expected+=" 'StrList': ['croquetas', 'tortilla'],\n"
+    expected+=" 'none': None}"
+
+    t.setParameters('Parameters', **set_params)
+    get_params = t.getParameters('Parameters', transform_numpy_scalars=True)
+    try:
+        assert pprint.pformat(get_params) == expected
+    except AssertionError:
+        msg = 'parameters are not equivalent:\n'
+        msg+= 'expected:\n'
+        msg+= expected+'\n'
+        msg+= 'got:\n'
+        msg+= pprint.pformat(get_params)
+        raise ValueError(msg)
+
 def test_remove():
     # create a node and attach it to another node 
     a = cgns.Node( Name='TheParent')

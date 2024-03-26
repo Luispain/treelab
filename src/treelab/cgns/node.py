@@ -1036,6 +1036,7 @@ class Node(list):
         return Container
 
     def getParameters(self, ContainerName, transform_numpy_scalars=False):
+        print('totoooooooo')
         Container = self.get( Name=ContainerName, Depth=1 )
         ParamsDict = dict()
         ParamsList = []
@@ -1044,10 +1045,12 @@ class Node(list):
 
         for param in Container.children():
             if param.name().startswith('_list_'):
-                ParamsList += [ Container.getParameters(param.name()) ]
+                ParamsList += [ Container.getParameters(param.name(),
+                              transform_numpy_scalars=transform_numpy_scalars) ]
             else:
                 if param.children():
-                    ParamsDict[param.name()] = Container.getParameters(param.name())
+                    ParamsDict[param.name()] = Container.getParameters(param.name(),
+                                transform_numpy_scalars=transform_numpy_scalars)
                 else:
                     ParamsDict[param.name()] = param.value()
                     # TODO For some applications, we need to get scalars, not 1 sized arrays
