@@ -104,17 +104,36 @@ def nodelist_to_group(f, node, nodepath=None, links=[] ):
 
 def _setData(group, nodevalue):
     if nodevalue is not None:
-
+        is_str_value = False
         if isinstance(nodevalue,str):
+            is_str_value = True
             group.attrs.create('type', np.array('C1'.encode(encoding), dtype=cgns_dtype))
             data = np.frombuffer(nodevalue.encode(encoding), dtype='int8'.encode(encoding))
 
         else:
             data_type = Numpy_dtype_to_CGNS_dtype[nodevalue.dtype]
+            nodevalue_shape = nodevalue.shape
             if data_type == 'C1':
+                is_str_value = True
                 group.attrs.create('type', np.array('C1'.encode(encoding), dtype=cgns_dtype))
-                nodevalue = ''.join([n.decode(encoding) for n in nodevalue])
-                data = np.frombuffer(nodevalue.encode(encoding), dtype='int8'.encode(encoding))
+                if len(nodevalue_shape) == 1:
+                    for i in range(nodevalue_shape[0]):
+                        nodevalue[i] = nodevalue[i].decode(encoding)
+                elif len(nodevalue_shape) == 2:
+                    for i in range(nodevalue_shape[0]):
+                        for j in range(nodevalue_shape[1]):
+                            nodevalue[i,j] = nodevalue[i,j].decode(encoding)
+                elif len(nodevalue_shape) == 3:
+                    for i in range(nodevalue_shape[0]):
+                        for j in range(nodevalue_shape[1]):
+                            for k in range(nodevalue_shape[2]):
+                                nodevalue[i,j,k] = nodevalue[i,j,k].decode(encoding)
+                else:
+                    raise NotImplementedError("Rank of str numpy objects must be <=3")
+
+                data = np.frombuffer(nodevalue.T, dtype='int8'.encode(encoding))
+                data.shape = nodevalue_shape[::-1]
+
             else:
                 group.attrs.create('type', np.array(data_type.encode(encoding), dtype=cgns_dtype))
                 if len(nodevalue.shape) > 1: 
@@ -123,8 +142,8 @@ def _setData(group, nodevalue):
                     data = nodevalue
 
         if ' data' not in group:
-            if use_chunks:
-                maxshape = [None for s in data.shape]
+            if use_chunks and is_str_value and len(data.shape)==1:
+                maxshape = [None for _ in data.shape]
                 group.create_dataset(' data', data=data, maxshape=maxshape, chunks=True)
             else:
                 group.create_dataset(' data', data=data, chunks=None)
@@ -176,7 +195,25 @@ def extract_value( group ):
     else:
         cgns_dtype = group.attrs['type'].decode(encoding)
 
-    if cgns_dtype == 'C1': return data.tobytes().decode(encoding)
+    if cgns_dtype == 'C1': 
+        nodevalue_shape = data.shape
+        decoded_data = np.empty_like(data, dtype='c')
+        if len(nodevalue_shape) == 1:
+            for i in range(nodevalue_shape[0]):
+                decoded_data[i] = np.array(data[i]).tobytes().decode(encoding)
+        elif len(nodevalue_shape) == 2:
+            for i in range(nodevalue_shape[0]):
+                for j in range(nodevalue_shape[1]):
+                    decoded_data[i,j] = np.array(data[i,j]).tobytes().decode(encoding)
+        elif len(nodevalue_shape) == 3:
+            for i in range(nodevalue_shape[0]):
+                for j in range(nodevalue_shape[1]):
+                    for k in range(nodevalue_shape[2]):
+                        decoded_data[i,j,k] = np.array(data[i,j,k]).tobytes().decode(encoding)
+        else:
+            raise NotImplementedError("Rank of str numpy objects must be <=3")
+        
+        return decoded_data.T
     
     if len(data.shape) > 1: data = data.T # put in memory as in Fortran
 

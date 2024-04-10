@@ -173,7 +173,8 @@ class Node(list):
             self[0] = Name
         else:
             Name = self[0]
-        if Value is not None: self.setValue(Value)
+        if Value is not None:
+            self.setValue(Value)
         if isinstance(Type,str):
             if not Type.endswith('_t'): Type += '_t'
             self[3] = Type
