@@ -102,7 +102,7 @@ def readNode(filename, path, backend='h5py2cgns'):
 
 def load(filename, only_skeleton=False, backend='h5py2cgns'):
     '''
-    Open a file and return a :py:class:`~mola_v2.cgns.tree.Tree`.
+    Open a file and return a :py:class:`~treelab.cgns.tree.Tree`.
 
     Parameters
     ----------
@@ -131,7 +131,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
     Returns
     -------
 
-        t : :py:class:`~mola_v2.cgns.tree.Tree`
+        t : :py:class:`~treelab.cgns.tree.Tree`
             the tree node contained in file
 
     Examples
@@ -142,7 +142,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
 
         ::
 
-          import mola_v2.cgns  as M
+          import treelab.cgns  as M
           t = cgns.load('myfile.cgns')
 
         will open the file, including :py:class:`numpy.ndarray` contained in *DataArray_t* nodes.
@@ -151,7 +151,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
 
         ::
 
-          import mola_v2.cgns  as M
+          import treelab.cgns  as M
           t = cgns.load('myfile.cgns', only_skeleton=True)
 
 
@@ -211,7 +211,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
 def save(data, *args, **kwargs):
     '''
     Make a merge of information contained in **data** and then save the resulting
-    :py:class:`~mola_v2.cgns.tree.Tree`.
+    :py:class:`~treelab.cgns.tree.Tree`.
 
     Parameters
     ----------
@@ -221,26 +221,26 @@ def save(data, *args, **kwargs):
 
         args
             mandatory comma-separated arguments of
-            :py:class:`~mola_v2.cgns.node.Node`'s :py:meth:`~mola_v2.cgns.node.Node.save` method
+            :py:class:`~treelab.cgns.node.Node`'s :py:meth:`~treelab.cgns.node.Node.save` method
 
         kwargs
             optional pair of ``keyword=value`` arguments of
-            :py:class:`~mola_v2.cgns.node.Node`'s :py:meth:`~mola_v2.cgns.node.Node.save` method
+            :py:class:`~treelab.cgns.node.Node`'s :py:meth:`~treelab.cgns.node.Node.save` method
 
     Returns
     -------
 
-        t : :py:class:`~mola_v2.cgns.tree.Tree`
+        t : :py:class:`~treelab.cgns.tree.Tree`
             a tree including all merged nodes contained in **data**
 
     Examples
     --------
     
-    For the following examples, we only need to import main :py:mod:`mola_v2.cgns ` subpackage:
+    For the following examples, we only need to import main :py:mod:`treelab.cgns ` subpackage:
 
     ::
     
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
 
     Let us start easy. We create a node, and write it down into a file: 
 
@@ -391,7 +391,7 @@ def save(data, *args, **kwargs):
 
 def merge(*data1, **data2 ):
     '''
-    Merge nodes into a single :py:class:`~mola_v2.cgns.tree.Tree` structure.
+    Merge nodes into a single :py:class:`~treelab.cgns.tree.Tree` structure.
 
     Parameters
     ----------
@@ -403,24 +403,24 @@ def merge(*data1, **data2 ):
         data2
             pair of ``keyword=value`` where each value is a :py:class:`list`
             containing the nodes to be merged and ``keyword`` is the name of the
-            new :py:class:`~mola_v2.cgns.base.Base` container automatically created
+            new :py:class:`~treelab.cgns.base.Base` container automatically created
             where nodes are being placed.
 
     Returns
     -------
 
-        t : :py:class:`~mola_v2.cgns.tree.Tree`
+        t : :py:class:`~treelab.cgns.tree.Tree`
             a tree including all merged nodes contained in **data1** and/or **data2**
 
     Examples
     --------
 
-    Declare a :py:class:`list` of :py:class:`~mola_v2.cgns.tree.Tree` and get the
-    :py:class:`~mola_v2.cgns.tree.Tree` which contains them all:
+    Declare a :py:class:`list` of :py:class:`~treelab.cgns.tree.Tree` and get the
+    :py:class:`~treelab.cgns.tree.Tree` which contains them all:
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
         a = cgns.Zone(Name='A')
         b = cgns.Zone(Name='B')
         c = cgns.Zone(Name='C')
@@ -441,26 +441,26 @@ def merge(*data1, **data2 ):
         CGNSTree/Base/C/ZoneType
 
     .. hint:: 
-        you may easily print the structure of a :py:class:`~mola_v2.cgns.tree.Tree`
-        (or any :py:class:`~mola_v2.cgns.node.Node`) using :py:meth:`~mola_v2.cgns.node.Node.printPaths()`
+        you may easily print the structure of a :py:class:`~treelab.cgns.tree.Tree`
+        (or any :py:class:`~treelab.cgns.node.Node`) using :py:meth:`~treelab.cgns.node.Node.printPaths()`
 
     Note that the function has automatically recognized that the input nodes are
-    of type :py:class:`~mola_v2.cgns.zone.Zone` and they have been put into a 
-    container of type :py:class:`~mola_v2.cgns.base.Base`, according to `CGNS`_ standard.
+    of type :py:class:`~treelab.cgns.zone.Zone` and they have been put into a 
+    container of type :py:class:`~treelab.cgns.base.Base`, according to `CGNS`_ standard.
     
     You may want to put the zones in different bases. You can achieve this 
     easily using a pairs of ``keyword=value`` arguments:
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
         a = cgns.Zone(Name='A')
         b = cgns.Zone(Name='B')
         c = cgns.Zone(Name='C')
 
         t = cgns.merge( FirstBase=a, SecondBase=[b, c] )
 
-    which will produce a :py:class:`~mola_v2.cgns.tree.Tree` with following structure:
+    which will produce a :py:class:`~treelab.cgns.tree.Tree` with following structure:
 
     .. code-block:: text
 
@@ -542,7 +542,7 @@ def getZones( data ):
     -------
 
         zones: list
-            list of :py:class:`~mola_v2.cgns.zone.Zone` contained in **data**
+            list of :py:class:`~treelab.cgns.zone.Zone` contained in **data**
 
     Examples
     --------
@@ -552,7 +552,7 @@ def getZones( data ):
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
 
         # arbitrarily create an heterogeneous list containing zones
         a = cgns.Zone(Name='A')
@@ -610,7 +610,7 @@ def getBases( data ):
     -------
 
         bases: list
-            list of :py:class:`~mola_v2.cgns.base.Base` contained in **data**
+            list of :py:class:`~treelab.cgns.base.Base` contained in **data**
 
     Examples
     --------
@@ -620,7 +620,7 @@ def getBases( data ):
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
 
         # arbitrarily create an heterogeneous list containing bases
         a = cgns.Base(Name='BaseA')
@@ -658,8 +658,8 @@ def getBases( data ):
 
 def useEquation(data, *args, **kwargs):
     '''
-    Call the :py:meth:`~mola_v2.cgns.zone.Zone.useEquation` method 
-    for each :py:class:`~mola_v2.cgns.zone.Zone` contained in 
+    Call the :py:meth:`~treelab.cgns.zone.Zone.useEquation` method 
+    for each :py:class:`~treelab.cgns.zone.Zone` contained in 
     argument **data**
 
     Parameters
@@ -669,32 +669,32 @@ def useEquation(data, *args, **kwargs):
             heterogeneous container of nodes compatible with :py:func:`merge`
 
             .. note::
-                :py:class:`~mola_v2.cgns.zone.Zone`'s are modified    
+                :py:class:`~treelab.cgns.zone.Zone`'s are modified    
 
         args
             mandatory comma-separated arguments of
-            :py:class:`~mola_v2.cgns.zone.Zone`'s :py:meth:`~mola_v2.cgns.zone.Zone.useEquation` method
+            :py:class:`~treelab.cgns.zone.Zone`'s :py:meth:`~treelab.cgns.zone.Zone.useEquation` method
 
         kwargs
             optional pair of ``keyword=value`` arguments of
-            :py:class:`~mola_v2.cgns.zone.Zone`'s :py:meth:`~mola_v2.cgns.zone.Zone.useEquation` method
+            :py:class:`~treelab.cgns.zone.Zone`'s :py:meth:`~treelab.cgns.zone.Zone.useEquation` method
 
     Returns
     -------
 
-        t : :py:class:`~mola_v2.cgns.tree.Tree`
+        t : :py:class:`~treelab.cgns.tree.Tree`
             same result as :py:func:`merge`
 
     Examples
     --------
 
-    Create two :py:class:`~mola_v2.cgns.tree.Tree`, each containing a different 
-    number of :py:class:`~mola_v2.cgns.zone.Zone` and create a new field named 
+    Create two :py:class:`~treelab.cgns.tree.Tree`, each containing a different 
+    number of :py:class:`~treelab.cgns.zone.Zone` and create a new field named 
     ``field`` attributing a specific value:
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
 
 
         zoneA = cgns.Mesh.Line( Name='zoneA', N=2 )
@@ -728,14 +728,14 @@ def useEquation(data, *args, **kwargs):
 
 def newZoneFromArrays(Name, ArraysNames, Arrays):
     '''
-    This handy function easily produces a structured :py:class:`~mola_v2.cgns.zone.Zone`
+    This handy function easily produces a structured :py:class:`~treelab.cgns.zone.Zone`
     directly from numpy arrays.
 
     Parameters
     ----------
 
         Name : str
-            The name you want to attribute to the new :py:class:`~mola_v2.cgns.zone.Zone`
+            The name you want to attribute to the new :py:class:`~treelab.cgns.zone.Zone`
 
         ArraysNames: list
             A :py:class:`list` of :py:class:`str` corresponding to the names 
@@ -748,8 +748,8 @@ def newZoneFromArrays(Name, ArraysNames, Arrays):
     Returns
     -------
 
-        zone : :py:class:`~mola_v2.cgns.zone.Zone`
-            the new created :py:class:`~mola_v2.cgns.zone.Zone`
+        zone : :py:class:`~treelab.cgns.zone.Zone`
+            the new created :py:class:`~treelab.cgns.zone.Zone`
 
     Examples
     --------
@@ -758,7 +758,7 @@ def newZoneFromArrays(Name, ArraysNames, Arrays):
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
         import numpy as np
 
         # create a grid
@@ -817,14 +817,14 @@ def newZoneFromArrays(Name, ArraysNames, Arrays):
 
 def newZoneFromDict(Name, DictWithArrays):
     '''
-    This handy function easily produces a structured :py:class:`~mola_v2.cgns.zone.Zone`
+    This handy function easily produces a structured :py:class:`~treelab.cgns.zone.Zone`
     directly from numpy arrays.
 
     Parameters
     ----------
 
         Name : str
-            The name you want to attribute to the new :py:class:`~mola_v2.cgns.zone.Zone`
+            The name you want to attribute to the new :py:class:`~treelab.cgns.zone.Zone`
 
         DictWithArrays: dict
             A :py:class:`dict` where each key corresponds to a field or coordinate 
@@ -834,8 +834,8 @@ def newZoneFromDict(Name, DictWithArrays):
     Returns
     -------
 
-        zone : :py:class:`~mola_v2.cgns.zone.Zone`
-            the new created :py:class:`~mola_v2.cgns.zone.Zone`
+        zone : :py:class:`~treelab.cgns.zone.Zone`
+            the new created :py:class:`~treelab.cgns.zone.Zone`
 
     Examples
     --------
@@ -844,7 +844,7 @@ def newZoneFromDict(Name, DictWithArrays):
 
     ::
 
-        import mola_v2.cgns  as M
+        import treelab.cgns  as M
         import numpy as np
 
         # create a grid

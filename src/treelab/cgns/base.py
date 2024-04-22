@@ -43,7 +43,7 @@ class Base(Node):
         if self.name() == 'Node': self.setName( 'Base' )
 
     def save(self,*args,**kwargs):
-        from .Tree import Tree
+        from .tree import Tree
         t = Tree()
         t.addChild( self )
         t.save(*args,**kwargs)
