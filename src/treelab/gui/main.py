@@ -30,8 +30,8 @@ from timeit import default_timer as toc
 import matplotlib.pyplot as plt
 plt.ion()
 
-
-
+QTVSCODESTYLE_THEMES = [theme for theme in dir(qtvsc.Theme) if not theme.startswith('__')]
+AVAILABLE_THEMES = ['Native'] + QTVSCODESTYLE_THEMES
 
 window_main_title = f'TreeLab ({__version__})'
 treelab_user_config = os.path.expanduser(os.path.join('~', '.treelab'))
@@ -41,7 +41,8 @@ def get_user_theme():
     try:
         with open(treelab_user_config, 'r') as f:
             lines = f.readlines()
-            user_theme = lines[0]
+            user_theme = lines[0].rstip('\n')
+            assert user_theme in AVAILABLE_THEMES
     except:
         pass
     for theme in qtvsc.Theme:
