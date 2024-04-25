@@ -35,7 +35,7 @@ from .utils import readNode, castNode
 
 class Node(list):
     '''
-    Implements class :py:class:`~mola_v2.cgns.node.Node`, which inherits from standard
+    Implements class :py:class:`~treelab.cgns.node.Node`, which inherits from standard
     Python :py:class:`list` with `CGNS`_ structure: 
 
     ::
@@ -44,18 +44,18 @@ class Node(list):
         ['name', numpy.ndarray,             [],     'type_t']
 
     .. note::
-        Some classes inheriting from :py:class:`~mola_v2.cgns.node.Node` are:
+        Some classes inheriting from :py:class:`~treelab.cgns.node.Node` are:
 
-        * :py:class:`~mola_v2.cgns.tree.Tree`
-        * :py:class:`~mola_v2.cgns.base.Base`
-        * :py:class:`~mola_v2.cgns.zone.Zone`
+        * :py:class:`~treelab.cgns.tree.Tree`
+        * :py:class:`~treelab.cgns.base.Base`
+        * :py:class:`~treelab.cgns.zone.Zone`
 
 
     Creation of nodes
     -----------------
 
     Please note the following construction parameters for the creation of
-    :py:class:`~mola_v2.cgns.node.Node` objects:
+    :py:class:`~treelab.cgns.node.Node` objects:
 
     Parameters
     ----------
@@ -63,20 +63,20 @@ class Node(list):
         args : :py:class:`list`
             a python `CGNS`_ list 
 
-        Parent : :py:class:`~mola_v2.cgns.node.Node` or :py:obj:`None`
-            an existing :py:class:`~mola_v2.cgns.node.Node` where the new :py:class:`~mola_v2.cgns.node.Node`
+        Parent : :py:class:`~treelab.cgns.node.Node` or :py:obj:`None`
+            an existing :py:class:`~treelab.cgns.node.Node` where the new :py:class:`~treelab.cgns.node.Node`
             will be attached
 
         Children : :py:class:`list`
-            a :py:class:`list` of :py:class:`~mola_v2.cgns.node.Node` or a
+            a :py:class:`list` of :py:class:`~treelab.cgns.node.Node` or a
             :py:class:`list` of `CGNS`_ lists. These will be the nodes attached 
-            to the new :py:class:`~mola_v2.cgns.node.Node`
+            to the new :py:class:`~treelab.cgns.node.Node`
 
         Name : :py:class:`str`
-            the name of the new :py:class:`~mola_v2.cgns.node.Node`
+            the name of the new :py:class:`~treelab.cgns.node.Node`
 
         Value : multiple
-            the value to be attributed to the new :py:class:`~mola_v2.cgns.node.Node`.
+            the value to be attributed to the new :py:class:`~treelab.cgns.node.Node`.
             It can be one of :
 
                 * :py:obj:`None`
@@ -107,7 +107,7 @@ class Node(list):
 
         position : :py:class:`str` or :py:class:`int`
             the position among the children of **Parent** where the new 
-            :py:class:`~mola_v2.cgns.node.Node` will be inserted (defaults to :python:`'last'`)
+            :py:class:`~treelab.cgns.node.Node` will be inserted (defaults to :python:`'last'`)
 
             .. note::
                 only relevant if **Parent** is provided
@@ -116,7 +116,7 @@ class Node(list):
     Examples
     ********
 
-    You can easily invoke (create) a :py:class:`~mola_v2.cgns.node.Node` like this:
+    You can easily invoke (create) a :py:class:`~treelab.cgns.node.Node` like this:
 
     ::
 
@@ -125,7 +125,7 @@ class Node(list):
         print(node)
         # >>> ['Node', None, [], 'DataArray_t']
 
-    Of course, when invoking a :py:class:`~mola_v2.cgns.node.Node`, you can specify 
+    Of course, when invoking a :py:class:`~treelab.cgns.node.Node`, you can specify 
     some of their attributes, like its **name**, its **value**, its **type** or
     its **children**:
 
@@ -149,8 +149,8 @@ class Node(list):
         # >>> ['name', array([0, 1, 2]), [], 'DataArray_t']
 
     However, since the new node may also belong to a different inherited class 
-    (like a :py:class:`~mola_v2.cgns.tree.Tree` or a :py:class:`~mola_v2.cgns.base.Base`, etc...)
-    it is more recommended to rather use the function :py:func:`~mola_v2.cgns.node.castNode`
+    (like a :py:class:`~treelab.cgns.tree.Tree` or a :py:class:`~treelab.cgns.base.Base`, etc...)
+    it is more recommended to rather use the function :py:func:`~treelab.cgns.node.castNode`
     as follows:
 
     ::
@@ -214,13 +214,13 @@ class Node(list):
 
     def parent(self):
         '''
-        Get the parent of a given :py:class:`~mola_v2.cgns.node.Node`
+        Get the parent of a given :py:class:`~treelab.cgns.node.Node`
 
         Returns
         -------
 
-            node : :py:class:`~mola_v2.cgns.node.Node` or :py:obj:`None`
-                the parent :py:class:`~mola_v2.cgns.node.Node` or if current node is
+            node : :py:class:`~treelab.cgns.node.Node` or :py:obj:`None`
+                the parent :py:class:`~treelab.cgns.node.Node` or if current node is
                 not attached to any node, then returns :py:obj:`None`
 
         Example
@@ -266,7 +266,7 @@ class Node(list):
 
             Path : str
                 :py:class:`str` of its path from the most top parent 
-                :py:class:`~mola_v2.cgns.node.Node`
+                :py:class:`~treelab.cgns.node.Node`
 
         Example
         *******
@@ -293,13 +293,13 @@ class Node(list):
     def save(self, filename, verbose=True, backend='h5py2cgns'):
         '''
         Save into a `CGNS`_ file the node and their children keeping **exactly**
-        the same hierarchy as defined by their :py:meth:`~mola_v2.cgns.node.Node.path`
+        the same hierarchy as defined by their :py:meth:`~treelab.cgns.node.Node.path`
 
         Parameters
         ----------
 
             filename : str
-                the absolute or relative filename path where the :py:class:`~mola_v2.cgns.node.Node`
+                the absolute or relative filename path where the :py:class:`~treelab.cgns.node.Node`
                 is being saved 
 
             verbose : bool
@@ -352,7 +352,7 @@ class Node(list):
 
     def name(self):
         '''
-        get the name of the current :py:class:`~mola_v2.cgns.node.Node`
+        get the name of the current :py:class:`~treelab.cgns.node.Node`
 
         Returns
         -------
@@ -378,7 +378,7 @@ class Node(list):
 
     def printName(self):
         '''
-        prints into standard output the name of the current :py:class:`~mola_v2.cgns.node.Node`
+        prints into standard output the name of the current :py:class:`~treelab.cgns.node.Node`
 
         Example
         *******
@@ -397,7 +397,7 @@ class Node(list):
 
     def value(self, ravel=False):
         '''
-        get the value associated to the current :py:class:`~mola_v2.cgns.node.Node`
+        get the value associated to the current :py:class:`~treelab.cgns.node.Node`
 
         Parameters
         ----------
@@ -427,13 +427,13 @@ class Node(list):
 
                 * the value is not loaded into memory
                     the private :py:class:`str` :python:`'_skeleton'` is 
-                    returned (see :py:meth:`~mola_v2.cgns.node.Node.reloadNodeData`)
+                    returned (see :py:meth:`~treelab.cgns.node.Node.reloadNodeData`)
 
         Examples
         --------
 
         It is very important to note that in many cases (specially when :py:class:`str`
-        are involved) the value returned by :py:meth:`~mola_v2.cgns.node.Node.value`
+        are involved) the value returned by :py:meth:`~treelab.cgns.node.Node.value`
         does **not** correspond to the actual object stored in :python:`node[1]`.
 
         For this reason, the following example will show the 
@@ -488,12 +488,12 @@ class Node(list):
 
         so, again, you will prefer :python:`node.value()` over :python:`node[1]`
 
-        If the value contained in the :py:class:`~mola_v2.cgns.node.Node` is a 
+        If the value contained in the :py:class:`~treelab.cgns.node.Node` is a 
         numeric :py:class:`numpy.ndarray`, then its value is always directly 
-        returned, without copy. Hence, you can make modifications of the :py:class:`~mola_v2.cgns.node.Node`,
+        returned, without copy. Hence, you can make modifications of the :py:class:`~treelab.cgns.node.Node`,
         or share its value with other nodes without concern. If the :py:class:`numpy.ndarray`
         is multi-dimensional, it is sometimes preferred to work with a flattened 
-        view. This is why the option **ravel** is included in :py:meth:`~mola_v2.cgns.node.Node.value`.
+        view. This is why the option **ravel** is included in :py:meth:`~treelab.cgns.node.Node.value`.
         The next example illustrates how to create a :py:class:`numpy.ndarray`,
         share it between two different nodes, get it in flattened view,
         modify it, and still check that no copy is made:
