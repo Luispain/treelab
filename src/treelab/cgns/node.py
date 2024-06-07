@@ -921,7 +921,7 @@ class Node(list):
                     target_path = v.replace('target_path:','')
             path = n.path().replace('CGNSTree','')
             target_path = target_path.replace('CGNSTree','')
-            link_CGNS_MAP = ['',target_file, path, target_path, 5]
+            link_CGNS_MAP = ['.',target_file, path, target_path, 5]
             links.append( link_CGNS_MAP )
 
         return links
