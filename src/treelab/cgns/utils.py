@@ -65,6 +65,11 @@ def castNode( NodeOrNodelikeList ):
 
     return node
 
+def load_workflow_parameters(filename):
+    from .read_write import h5py2cgns as h
+    wfp = h.load_workflow_parameters(filename)
+    return castNode(wfp)
+
 def readNode(filename, path, backend='h5py2cgns'):
 
     if path.startswith('CGNSTree/'):

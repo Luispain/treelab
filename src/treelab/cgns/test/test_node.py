@@ -279,3 +279,16 @@ def test_getPaths():
         cgns.Node( Name=f'GrandChild{n}', Parent=child)
     paths = parent.getPaths()
     assert paths == ['Parent', 'Parent/Child0', 'Parent/Child1', 'Parent/Child1/GrandChild0', 'Parent/Child1/GrandChild1']
+
+
+def test_load_workflow_parameters():
+    t = cgns.Tree()
+    t.setParameters('WorkflowParameters',qty=2,croquetas=['jamon','tortilla'])
+    wf_init = t.get('WorkflowParameters',Depth=1)
+    t.save('test.cgns')
+    wf = cgns.load_workflow_parameters('test.cgns')
+    os.unlink('test.cgns')
+    assert str(wf) == str(wf_init)
+
+if __name__ == '__main__':
+    test_load_workflow_parameters()

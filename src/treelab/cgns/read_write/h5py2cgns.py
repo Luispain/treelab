@@ -63,6 +63,10 @@ def load(filename, only_skeleton=False):
 
     return t, f, l
 
+def load_workflow_parameters(filename):
+    f = load_h5(filename)
+    childnode = build_cgns_nodelist( f['WorkflowParameters'])
+    return childnode
 
 def load_h5(filename, permission='r'):
     f = h5py.File(filename, permission, track_order=True)

@@ -5,6 +5,7 @@ from .tree import Tree
 from .utils import (castNode,
                     readNode,
                     load,
+                    load_workflow_parameters,
                     save,
                     merge,
                     getZones,
