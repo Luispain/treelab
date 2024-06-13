@@ -63,9 +63,9 @@ def load(filename, only_skeleton=False):
 
     return t, f, l
 
-def load_workflow_parameters(filename):
+def load_from_path(filename, path):
     f = load_h5(filename)
-    childnode = build_cgns_nodelist( f['WorkflowParameters'])
+    childnode = build_cgns_nodelist( f[path] )
     return childnode
 
 def load_h5(filename, permission='r'):

@@ -66,9 +66,19 @@ def castNode( NodeOrNodelikeList ):
     return node
 
 def load_workflow_parameters(filename):
+    from .tree import Tree
     from .read_write import h5py2cgns as h
-    wfp = h.load_workflow_parameters(filename)
+    wfp = h.load_from_path(filename, 'WorkflowParameters')
+    tree = Tree()
+    tree.addChild(wfp)
+    wfp_dict = tree.getParameters('WorkflowParameters',transform_numpy_scalars=True)
+    return wfp_dict
+
+def load_from_path(filename, path):
+    from .read_write import h5py2cgns as h
+    wfp = h.load_from_path(filename, path)
     return castNode(wfp)
+
 
 def readNode(filename, path, backend='h5py2cgns'):
 

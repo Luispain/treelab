@@ -284,7 +284,7 @@ def test_getPaths():
 def test_load_workflow_parameters():
     t = cgns.Tree()
     t.setParameters('WorkflowParameters',qty=2,croquetas=['jamon','tortilla'])
-    wf_init = t.get('WorkflowParameters',Depth=1)
+    wf_init = t.getParameters('WorkflowParameters',transform_numpy_scalars=True)
     t.save('test.cgns')
     wf = cgns.load_workflow_parameters('test.cgns')
     os.unlink('test.cgns')
