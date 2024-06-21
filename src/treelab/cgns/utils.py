@@ -18,20 +18,15 @@
 import numpy as np
 from .. import misc as m
 
-def castNode( NodeOrNodelikeList ):
+def castNode( NodeOrNodelikeList, Parent=None ):
     '''
     toto
     '''
     from .node import Node
 
-    if not isinstance(NodeOrNodelikeList, Node):
-        node = Node(NodeOrNodelikeList)
-    else:
-        node = NodeOrNodelikeList
 
-    for i, n in enumerate(node[2]):
-        node[2][i] = castNode(n)
-
+    node = Node(NodeOrNodelikeList, Parent=Parent)
+        
     if node[3] == 'Zone_t':
         from .zone import Zone
         if not isinstance(node, Zone):
@@ -63,6 +58,9 @@ def castNode( NodeOrNodelikeList ):
         t = Tree(node)
         node = t
 
+    for i, n in enumerate(node.children()):
+        node[2][i] = castNode(n, Parent=node)
+
     return node
 
 def load_workflow_parameters(filename):
@@ -75,6 +73,7 @@ def load_workflow_parameters(filename):
     return wfp_dict
 
 def load_from_path(filename, path):
+    from .node import Node
     from .read_write import h5py2cgns as h
     wfp = h.load_from_path(filename, path)
     return castNode(wfp)

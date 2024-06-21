@@ -301,7 +301,27 @@ def test_saveThisNodeOnly():
     t_updated = cgns.load('test.cgns')
     os.unlink('test.cgns')
     n_value_updated = t_updated.get('testNode').value()
+    assert n_value[0] == n_value_updated[0]    
+
+def test_load_from_path_plus_saveThisNodeOnly():
+    t = cgns.Tree()
+    p = cgns.Node(Name='Parent', Parent=t)
+    n = cgns.Node(Name='testNode', Value=np.array([0]), Parent=p)
+    t.save('test.cgns', backend='h5py2cgns')
+
+    p = cgns.load_from_path('test.cgns', 'Parent')
+
+    n2 = p.get(Name='testNode')
+    n_value = n2.value()
+    n_value += 1
+    n2.saveThisNodeOnly('test.cgns', backend='h5py2cgns') 
+
+    t_updated = cgns.load('test.cgns')
+    os.unlink('test.cgns')
+    n_value_updated = t_updated.get('testNode').value()
+    print(n_value[0], n_value_updated[0])
     assert n_value[0] == n_value_updated[0]
 
 if __name__ == '__main__':
-    test_saveThisNodeOnly()
+    test_load_from_path_plus_saveThisNodeOnly()
+    # test_saveThisNodeOnly()
