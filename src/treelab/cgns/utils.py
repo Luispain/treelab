@@ -24,9 +24,18 @@ def castNode( NodeOrNodelikeList, Parent=None ):
     '''
     from .node import Node
 
+    if not isinstance(NodeOrNodelikeList, Node):
+        node = Node(NodeOrNodelikeList, Parent=Parent)
+    else:
+        node = NodeOrNodelikeList
+    for i, n in enumerate(node[2]):
+        node[2][i] = castNode(n, Parent=node)
 
-    node = Node(NodeOrNodelikeList, Parent=Parent)
-        
+
+    # node = Node(NodeOrNodelikeList, Parent=Parent)
+    # for i, n in enumerate(node.children()):
+    #     node[2][i] = castNode(n, Parent=node)
+
     if node[3] == 'Zone_t':
         from .zone import Zone
         if not isinstance(node, Zone):
@@ -58,8 +67,6 @@ def castNode( NodeOrNodelikeList, Parent=None ):
         t = Tree(node)
         node = t
 
-    for i, n in enumerate(node.children()):
-        node[2][i] = castNode(n, Parent=node)
 
     return node
 
