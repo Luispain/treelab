@@ -140,8 +140,8 @@ class Base(Node):
         return len( self.zones() ) 
 
     def getElementsTypes(self):
-        types = []
+        types = set()
         for zone in self.zones():
-            types += zone.getElementsTypes()
+            types.update(zone.getElementsTypes())
         return types
     

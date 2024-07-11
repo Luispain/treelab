@@ -68,18 +68,18 @@ class Zone(Node):
         return self.get('ZoneType',Depth=1).value() == 'Unstructured'
     
     def getElementsTypes(self):
-        types = []
-        elts_nodes = self.get(Type='Elements', Depth=1)
+        types = set()
+        elts_nodes = self.group(Type='Elements', Depth=1)
 
         if not elts_nodes:
             zone_type = self.get(Type='ZoneType', Depth=1).value()
             if zone_type == 'Structured':
-                types += ['STRUCTURED']
+                types.add('STRUCTURED')
 
         else:
             for elts in elts_nodes:
                 enum = int(elts[1][0])
-                types += [ELEMENTS_TYPES[enum]]
+                types.add(ELEMENTS_TYPES[enum])
         return types
 
     def dim(self):

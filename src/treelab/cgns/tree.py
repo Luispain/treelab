@@ -217,8 +217,8 @@ class Tree(Node):
         return len( self.bases() ) 
     
     def getElementsTypes(self):
-        types = []
+        types = set()
         for base in self.bases():
-            types += base.getElementsTypes()
+            types.update(base.getElementsTypes())
         return types
     
