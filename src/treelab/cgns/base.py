@@ -138,3 +138,10 @@ class Base(Node):
 
     def numberOfZones(self):
         return len( self.zones() ) 
+
+    def getElementsTypes(self):
+        types = []
+        for zone in self.zones():
+            types += zone.getElementsTypes()
+        return types
+    

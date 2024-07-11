@@ -215,3 +215,10 @@ class Tree(Node):
 
     def numberOfBases(self):
         return len( self.bases() ) 
+    
+    def getElementsTypes(self):
+        types = []
+        for base in self.bases():
+            types += base.getElementsTypes()
+        return types
+    
