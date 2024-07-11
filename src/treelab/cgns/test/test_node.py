@@ -290,5 +290,38 @@ def test_load_workflow_parameters():
     os.unlink('test.cgns')
     assert str(wf) == str(wf_init)
 
+def test_saveThisNodeOnly():
+    t = cgns.Tree()
+    n = cgns.Node(Name='testNode',Value=np.array([0]))
+    n.attachTo(t)
+    t.save('test.cgns',backend='h5py2cgns')
+    n_value = n.value()
+    n_value += 1
+    n.saveThisNodeOnly('test.cgns',backend='h5py2cgns')
+    t_updated = cgns.load('test.cgns')
+    os.unlink('test.cgns')
+    n_value_updated = t_updated.get('testNode').value()
+    assert n_value[0] == n_value_updated[0]    
+
+def test_load_from_path_plus_saveThisNodeOnly():
+    t = cgns.Tree()
+    p = cgns.Node(Name='Parent', Parent=t)
+    n = cgns.Node(Name='testNode', Value=np.array([0]), Parent=p)
+    t.save('test.cgns', backend='h5py2cgns')
+
+    p = cgns.load_from_path('test.cgns', 'Parent')
+
+    n2 = p.get(Name='testNode')
+    n_value = n2.value()
+    n_value += 1
+    n2.saveThisNodeOnly('test.cgns', backend='h5py2cgns') 
+
+    t_updated = cgns.load('test.cgns')
+    os.unlink('test.cgns')
+    n_value_updated = t_updated.get('testNode').value()
+    print(n_value[0], n_value_updated[0])
+    assert n_value[0] == n_value_updated[0]
+
 if __name__ == '__main__':
-    test_load_workflow_parameters()
+    test_load_from_path_plus_saveThisNodeOnly()
+    # test_saveThisNodeOnly()

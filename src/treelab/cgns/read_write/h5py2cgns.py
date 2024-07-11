@@ -152,7 +152,6 @@ def _setData(group, nodevalue):
             else:
                 group.create_dataset(' data', data=data, chunks=None)
         else:
-            group[' data'].resize( data.shape )
             group[' data'][:] = data
 
     else:
