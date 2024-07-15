@@ -36,7 +36,7 @@ class Tree(Node):
         else:
             super().__init__(Name='CGNSTree',Type='CGNSTree_t')
             if input:
-                self.merge( input[2] )
+                self.add( input[2] )
 
         if not self.get('CGNSLibraryVersion', Depth=1)  \
             and defaultCGNSLibraryVersion:
@@ -100,7 +100,7 @@ class Tree(Node):
                 zone.setName(newName)
 
 
-    def merge(self, elements):
+    def add(self, elements):
 
         if not isinstance(elements, list):
             AttributeError(m.RED+'elements must be a list or a Node'+m.ENDC)
@@ -129,7 +129,7 @@ class Tree(Node):
             elif isinstance(t, Node):
                 self.addChild(t, override_sibling_by_name=False)
             elif isinstance(t, list):
-                self.merge( t )
+                self.add( t )
 
         self.findAndRemoveNodes(Name='CGNSLibraryVersion.*', Depth=1)
         self.setUniqueBaseNames()

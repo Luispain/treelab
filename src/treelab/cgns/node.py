@@ -1096,6 +1096,20 @@ class Node(list):
             has_skeleton = n.hasAnySkeletonAmongDescendants()
             if has_skeleton: return True
         return False
+    
+    def merge(self, node):
+        in_names = [n.name() for n in [self, node]]
+        if len(set(in_names)) != 1:
+            raise ValueError(f"Mismatching names for input nodes : {in_names}")
+        _add_children_to_node_from_another(self, node)
+
+def _add_children_to_node_from_another(node1, node2):
+    for child2 in node2.children():
+        try:
+            child1 = next(c for c in node1.children() if c.name() == child2.name())
+            _add_children_to_node_from_another(child1, child2)
+        except StopIteration:
+            node1.addChild(child2.copy())
 
 def _compareValue(node, Value):
     NodeValue = node.value()
