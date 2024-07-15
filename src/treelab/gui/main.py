@@ -1041,7 +1041,6 @@ class MainWindow(QMainWindow):
         for node in self.getSelectedNodes():
             if node.type() != 'Link_t': continue
             item = node.QStandardItem
-            path = node.path()
             tab = self.getTab()
             try:
                 node.replaceLink(tab.t.file)
@@ -1055,7 +1054,6 @@ class MainWindow(QMainWindow):
                 msg.exec_()
                 break
 
-            node = self.getCGNSTree().getAtPath( path )
             item.node_cgns = node
             item.node_cgns.QStandardItem = item
             item.isStyleCGNSbeingModified = True
@@ -1414,9 +1412,14 @@ class MainWindow(QMainWindow):
         except AttributeError:
             item.isStyleCGNSbeingModified = False
         if hasattr(item, "node_cgns"):
-            item.node_cgns.setName(item.text())
+            # item.node_cgns.setName(item.text())
+            for treeitem in self.getSelectedItems():
+                treeitem.setText(item.text())
+                treeitem.node_cgns.setName(item.text())
+                treeitem.node_cgns._updateSelfAndChildrenPaths()
             return
 
+        # drag-and-drop handling
         try:
             node = [n for n in self.getSelectedNodes() if n.name() == item.text()][0]
         except IndexError:
@@ -1727,155 +1730,160 @@ class MainWindow(QMainWindow):
     def updateValueOfNodeCGNS(self, item):
         if self.table.isBeingUpdated: return
         # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        tree = self.getQtTree()
-        for index in tree.selectionModel().selectedIndexes():
-            treeitem = tree.model.itemFromIndex(index)
-
-        node_cgns = treeitem.node_cgns
-        value = node_cgns.value()
-        print('actual value is : '+str(value))
         new_value = item.text().strip()
+        if new_value == "": return
 
-        i = item.row()
-        j = item.column()
+        selected_indexes = self.table.selectionModel().selectedIndexes()
+        indices_i = []
+        indices_j = []
+        for table_index in selected_indexes:
+            indices_i.append(table_index.row())
+            indices_j.append(table_index.column())
 
-        newlocals = {'array':value}
+        for treeitem in self.getSelectedItems():
 
-        try:
-            if new_value == 'None':
-                node_cgns.setValue(None)
+            new_value = item.text().strip()
+            if new_value == "": return
 
-            elif new_value in ['{}' , '[]']:
-                node_cgns.setValue(value)
+            node_cgns = treeitem.node_cgns
+            value = node_cgns.value()
+            i = item.row()
+            j = item.column()
 
-            elif new_value.startswith('[') and new_value.endswith(']'):
-                newNumpyArray = np.array(eval(new_value,globals(),newlocals), order='F')
-                node_cgns.setValue(newNumpyArray)
+            newlocals = {'array':value}
 
-            elif new_value.startswith('{') and new_value.endswith('}'):
-                expr = new_value[1:-1]
-                if expr.startswith('this:'):
-                    expr = expr.replace('this:','')
-                    newNumpyValue = eval(expr,globals(),newlocals)
-                    if isinstance(value,np.ndarray):
-                        dim = len(value.shape)
-                        if dim == 1:
-                            value[i] = newNumpyValue
-                        elif dim == 2:
-                            value[i,j] = newNumpyValue
-                        elif dim == 3:
-                            planeIndex = self.dock.dataSlicer.ijkSelector.currentText()
-                            planeValue = self.dock.dataSlicer.sliceSelector.value()
-                            if planeIndex == 'k':
-                                value[i,j,planeValue] = newNumpyValue
-                            if planeIndex == 'j':
-                                value[i,planeValue,j] = newNumpyValue
-                            else:
-                                value[planeValue,i,j] = newNumpyValue
-
-                    elif isinstance(value, str) or value is None:
-                        node_cgns.setValue(newNumpyArray)
-
-                    elif isinstance(value, list):
-                        value[i] = newNumpyValue
-
-                else:
-                    newNumpyArray = np.array(eval(expr,globals(),newlocals), order='F')
-                    if isinstance(value, np.ndarray) and len(newNumpyArray.shape) == 0:
-                        value[:] = newNumpyArray
-                    else:
-                        node_cgns.setValue(newNumpyArray)
-
-            elif isinstance(value, np.ndarray):
-                dim = len(value.shape)
-
-                if dim == 1:
-                    i = item.row()
-                    if new_value == '':
-                        value[i] = 0
-                    else:
-                        try:
-                            value[i] = new_value
-                        except ValueError:
-                            node_cgns.setValue(new_value)
-
-                elif dim == 2:
-                    i = item.row()
-                    j = item.column()
-
-                    if new_value == '':
-                        value[i,j] = 0
-                    else:
-                        try:
-                            value[i,j] = new_value
-                        except ValueError:
-                            node_cgns.setValue(new_value)
-
-                elif dim == 3:
-                    i = item.row()
-                    j = item.column()
-
-                    planeIndex = self.dock.dataSlicer.ijkSelector.currentText()
-                    planeValue = self.dock.dataSlicer.sliceSelector.value()
-                    if planeIndex == 'k':
-                        if new_value == '':
-                            value[i,j,planeValue] = 0
-                        else:
-                            try:
-                                value[i,j,planeValue] = new_value
-                            except ValueError:
-                                node_cgns.setValue(new_value)
-                    elif planeIndex == 'j':
-                        if new_value == '':
-                            value[i,planeValue,j] = 0
-                        else:
-                            try:
-                                value[i,planeValue,j] = new_value
-                            except ValueError:
-                                node_cgns.setValue(new_value)
-                    else:
-                        if new_value == '':
-                            value[planeValue,i,j] = 0
-                        else:
-                            try:
-                                value[planeValue,i,j] = new_value
-                            except ValueError:
-                                node_cgns.setValue(new_value)
-
-
-            elif isinstance(value,str) or value is None:
-                if new_value == '':
+            try:
+                if new_value == 'None':
                     node_cgns.setValue(None)
-                elif new_value[0].isdigit():
-                    if '.' in new_value:
-                        new_value = np.array([new_value],dtype=np.float64,order='F')
+
+                elif new_value in ['{}' , '[]']:
+                    node_cgns.setValue(value)
+
+                elif new_value.startswith('[') and new_value.endswith(']'):
+                    newNumpyArray = np.array(eval(new_value,globals(),newlocals), order='F')
+                    node_cgns.setValue(newNumpyArray)
+
+                elif new_value.startswith('{') and new_value.endswith('}'):
+                    expr = new_value[1:-1]
+                    if expr.startswith('this:'):
+                        expr = expr.replace('this:','')
+                        newNumpyValue = eval(expr,globals(),newlocals)
+                        if isinstance(value,np.ndarray):
+                            dim = len(value.shape)
+                            if dim == 1:
+                                value[i] = newNumpyValue
+                            elif dim == 2:
+                                value[i,j] = newNumpyValue
+                            elif dim == 3:
+                                planeIndex = self.dock.dataSlicer.ijkSelector.currentText()
+                                planeValue = self.dock.dataSlicer.sliceSelector.value()
+                                if planeIndex == 'k':
+                                    value[i,j,planeValue] = newNumpyValue
+                                if planeIndex == 'j':
+                                    value[i,planeValue,j] = newNumpyValue
+                                else:
+                                    value[planeValue,i,j] = newNumpyValue
+
+                        elif isinstance(value, str) or value is None:
+                            node_cgns.setValue(newNumpyArray)
+
+                        elif isinstance(value, list):
+                            value[i] = newNumpyValue
+
                     else:
-                        new_value = np.array([new_value],dtype=np.int32,order='F')
+                        newNumpyArray = np.array(eval(expr,globals(),newlocals), order='F')
+                        if isinstance(value, np.ndarray) and len(newNumpyArray.shape) == 0:
+                            value[:] = newNumpyArray
+                        else:
+                            node_cgns.setValue(newNumpyArray)
+
+                elif isinstance(value, np.ndarray):
+                    dim = len(value.shape)
+
+                    if dim == 1:
+                        if new_value == '':
+                            value[indices_i] = 0
+                        else:
+                            try:
+                                value[indices_i] = new_value
+                            except ValueError:
+                                node_cgns.setValue(new_value)
+
+                    elif dim == 2:
+
+                        if new_value == '':
+                            print("was supressing")
+                            value[(indices_i, indices_j)] = 0
+                        else:
+                            try:
+                                value[(indices_i, indices_j)] = new_value
+                            except ValueError:
+                                node_cgns.setValue(new_value)
+
+                    elif dim == 3:
+                        planeIndex = self.dock.dataSlicer.ijkSelector.currentText()
+                        planeValue = self.dock.dataSlicer.sliceSelector.value()
+                        planeValue = [planeValue] * len(indices_i)
+                        print(planeValue)
+                        if planeIndex == 'k':
+                            if new_value == '':
+                                value[(indices_i,indices_j,planeValue)] = 0
+                            else:
+                                try:
+                                    value[(indices_i,indices_j,planeValue)] = new_value
+                                except ValueError:
+                                    node_cgns.setValue(new_value)
+                        elif planeIndex == 'j':
+                            if new_value == '':
+                                value[(indices_i,planeValue,indices_j)] = 0
+                            else:
+                                try:
+                                    value[(indices_i,planeValue,indices_j)] = new_value
+                                except ValueError:
+                                    node_cgns.setValue(new_value)
+                        else:
+                            if new_value == '':
+                                value[(planeValue,indices_i,indices_j)] = 0
+                            else:
+                                try:
+                                    value[(planeValue,indices_i,indices_j)] = new_value
+                                except ValueError:
+                                    node_cgns.setValue(new_value)
+
+
+                elif isinstance(value,str) or value is None:
+                    if new_value == '':
+                        node_cgns.setValue(None)
+                    elif new_value[0].isdigit():
+                        if '.' in new_value:
+                            new_value = np.array([new_value],dtype=np.float64,order='F')
+                        else:
+                            new_value = np.array([new_value],dtype=np.int32,order='F')
+                    node_cgns.setValue(new_value)
+
+                elif isinstance(value,list):
+                    i = item.row()
+                    if new_value == '':
+                        if len(value) > 1:
+                            del value[i]
+                        else:
+                            value = None
+                    else:
+                        value[i] = new_value
+                    node_cgns.setValue(value)
+
+
+            except BaseException as e:
+                err_msg = ''.join(traceback.format_exception(type(e),e, e.__traceback__))
+
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText(err_msg)
+                msg.setWindowTitle("Error")
+                msg.exec_()
+                new_value = value
                 node_cgns.setValue(new_value)
-
-            elif isinstance(value,list):
-                i = item.row()
-                if new_value == '':
-                    if len(value) > 1:
-                        del value[i]
-                    else:
-                        value = None
-                else:
-                    value[i] = new_value
-                node_cgns.setValue(value)
-
-
-        except BaseException as e:
-            err_msg = ''.join(traceback.format_exception(type(e),e, e.__traceback__))
-
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Error")
-            msg.setInformativeText(err_msg)
-            msg.setWindowTitle("Error")
-            msg.exec_()
-            new_value = value
-            node_cgns.setValue(new_value)
 
         self.updateTable()
         if isinstance(new_value, str) and new_value == '_skeleton':
@@ -1949,7 +1957,6 @@ class MainWindow(QMainWindow):
 
         node = MainItem.node_cgns
         MainItem.isStyleCGNSbeingModified = True
-
         font = MainItem.font()
         font.setPointSize( int(self.fontPointSize) )
         font.setBold(False)
@@ -2163,10 +2170,7 @@ class MainWindow(QMainWindow):
     def setTheme(self):
         self.theme = get_user_theme()
         if self.theme != 'Native':
-            print("setting new theme !")
             self.setStyleSheet(qtvsc.load_stylesheet(getattr(qtvsc.Theme,self.theme)))
-        else:
-            print("setTheme : Native scheme")
         self.updateColorsBasedOnTheme()
         self.createIconsOfButtons()
 
@@ -2271,9 +2275,7 @@ class TableWithCopy(QTableWidget):
 
 
         elif event.key() == QtCore.Qt.Key_Delete:
-            deleting_cells = sorted(self.selectedIndexes())
-            for delete in deleting_cells[::-1]:
-                self.setItem(delete.row(), delete.column(), QTableWidgetItem(''))
+            event.ignore()
 
         elif event.key() == QtCore.Qt.Key_A and (event.modifiers() & QtCore.Qt.ControlModifier):
             self.selectAll()
