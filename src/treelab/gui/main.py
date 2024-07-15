@@ -269,6 +269,8 @@ class MainWindow(QMainWindow):
              "upload node(s) data from file to memory (F5)", self)
         self.dock.node_toolbar.button_update_node_data.setStatusTip(
             "upload node(s) and their children data from file (F5) of type DataArray_t from file (F5)")
+        self.dock.node_toolbar.button_update_node_data.setToolTip(
+            "upload data from file (F5)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_update_node_data)
         key_update_node_data = QtGui.QShortcut(QtGui.QKeySequence('F5'), self)
         key_update_node_data.activated.connect(self.update_node_data)
@@ -278,19 +280,25 @@ class MainWindow(QMainWindow):
             "free-up memory from data of node(s) (F6)", self)
         self.dock.node_toolbar.button_unload_node_data_recursively.setStatusTip(
             "free-up memory from data of selected node(s) and their children of type DataArray_t (F6)")
+        self.dock.node_toolbar.button_unload_node_data_recursively.setToolTip(
+            "free-up data (F6)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_unload_node_data_recursively)
         key_unload_node_data = QtGui.QShortcut(QtGui.QKeySequence('F6'), self)
         key_unload_node_data.activated.connect(self.unload_node_data_recursively)
         self.dock.node_toolbar.button_unload_node_data_recursively.triggered.connect(self.unload_node_data_recursively)
 
         self.dock.node_toolbar.button_replace_link = QtGui.QAction(None, "read link", self)
-        self.dock.node_toolbar.button_replace_link.setStatusTip("Read link of selected node(s) from file (must be Link_t)")
+        self.dock.node_toolbar.button_replace_link.setStatusTip("Read link of selected node(s) from file (must be Link_t) (F7)")
+        self.dock.node_toolbar.button_replace_link.setToolTip("Read link (F7)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_replace_link)
+        key_replace_link = QtGui.QShortcut(QtGui.QKeySequence('F7'), self)
+        key_replace_link.activated.connect(self.replace_link)
         self.dock.node_toolbar.button_replace_link.triggered.connect(self.replace_link)
 
         self.dock.node_toolbar.button_modify_node_data = QtGui.QAction(None,
             "write selected node(s) in file (F8)", self)
         self.dock.node_toolbar.button_modify_node_data.setStatusTip("write selected node(s) in file (F8)")
+        self.dock.node_toolbar.button_modify_node_data.setToolTip("write data (F8)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_modify_node_data)
         key_modify_node_data = QtGui.QShortcut(QtGui.QKeySequence('F8'), self)
         key_modify_node_data.activated.connect(self.modify_node_data)
@@ -303,6 +311,8 @@ class MainWindow(QMainWindow):
             "add node(s) data to X plotter container (X)", self)
         self.dock.node_toolbar.button_add_plot_x_container.setStatusTip(
             "add node(s) data to X plotter container (key X)")
+        self.dock.node_toolbar.button_add_plot_x_container.setToolTip(
+            "add data to X axis (X)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_x_container)
         key_add_plot_x_container = QtGui.QShortcut(QtGui.QKeySequence('X'), self)
         key_add_plot_x_container.activated.connect(self.add_selected_nodes_to_plot_x_container)
@@ -313,6 +323,8 @@ class MainWindow(QMainWindow):
             "add node(s) data to Y plotter container (Y)", self)
         self.dock.node_toolbar.button_add_plot_y_container.setStatusTip(
             "add node(s) data to Y plotter container (key Y)")
+        self.dock.node_toolbar.button_add_plot_y_container.setToolTip(
+            "add data to Y axis (Y)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_plot_y_container)
         key_add_plot_y_container = QtGui.QShortcut(QtGui.QKeySequence('Y'), self)
         key_add_plot_y_container.activated.connect(self.add_selected_nodes_to_plot_y_container)
@@ -321,13 +333,15 @@ class MainWindow(QMainWindow):
         # own: QtGui.QIcon(GUIpath+"/icons/OwnIcons/add-curve-16.png")
         self.dock.node_toolbar.button_add_curve = QtGui.QAction(None,
             "add curve to plotter", self)
-        self.dock.node_toolbar.button_add_curve.setStatusTip("add curve to plotter")
+        self.dock.node_toolbar.button_add_curve.setStatusTip("add new curve to plotter")
+        self.dock.node_toolbar.button_add_curve.setToolTip("new curve")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_add_curve)
         self.dock.node_toolbar.button_add_curve.triggered.connect(self.add_curve)
 
         self.dock.node_toolbar.button_draw_curves = QtGui.QAction(None,
             "draw all curves (P)", self)
         self.dock.node_toolbar.button_draw_curves.setStatusTip("draw all curves (key P)")
+        self.dock.node_toolbar.button_draw_curves.setToolTip("draw all curves (P)")
         self.dock.node_toolbar.addAction(self.dock.node_toolbar.button_draw_curves)
         key_add_draw_curves = QtGui.QShortcut(QtGui.QKeySequence('P'), self)
         key_add_draw_curves.activated.connect(self.draw_curves)
@@ -432,6 +446,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar.button_new = QtGui.QAction(None, "new tab", self)
         self.toolbar.button_new.setStatusTip("Open a new tab with empty tree")
+        self.toolbar.button_new.setToolTip("New tab (Ctrl+T)")
         self.toolbar.button_new.triggered.connect(self.newTab)
         key_newTab = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+T'), self)
         key_newTab.activated.connect(self.newTab)
@@ -441,7 +456,8 @@ class MainWindow(QMainWindow):
 
 
         self.toolbar.button_open = QtGui.QAction(None,"open (Ctrl+O)", self)
-        self.toolbar.button_open.setStatusTip("Open a tree from a file")
+        self.toolbar.button_open.setStatusTip("Open file in new tab (Ctrl+O)")
+        self.toolbar.button_open.setToolTip("Open file in new tab (Ctrl+O)")
         self.toolbar.button_open.triggered.connect(self.openTree)
         key_openTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+O'), self)
         key_openTree.activated.connect(self.openTree)
@@ -450,6 +466,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_reopen = QtGui.QAction(None,
             "Open again (Shift + F5)", self)
         self.toolbar.button_reopen.setStatusTip("Open again the current tree from file (Shift + F5)")
+        self.toolbar.button_reopen.setToolTip("Re-open file (Shift + F5)")
         self.toolbar.button_reopen.triggered.connect(self.reopenTree)
         key_reopen = QtGui.QShortcut(QtGui.QKeySequence('Shift+F5'), self)
         key_reopen.activated.connect(self.reopenTree)
@@ -458,6 +475,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_save = QtGui.QAction(None,
                                     "save (Ctrl+S)", self)
         self.toolbar.button_save.setStatusTip("Save the current tree")
+        self.toolbar.button_save.setToolTip("Save the current tree (Ctrl+S)")
         self.toolbar.button_save.triggered.connect(self.saveTree)
         key_saveTree = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+S'), self)
         key_saveTree.activated.connect(self.saveTree)
@@ -466,6 +484,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_saveAs = QtGui.QAction(None,
                                       "save as (Ctrl+Shift+S)", self)
         self.toolbar.button_saveAs.setStatusTip("Save the current tree as new file")
+        self.toolbar.button_saveAs.setToolTip("Save as... (Ctrl+Shift+S)")
         self.toolbar.button_saveAs.triggered.connect(self.saveTreeAs)
         key_saveTreeAs = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Shift+S'), self)
         key_saveTreeAs.activated.connect(self.saveTreeAs)
@@ -491,6 +510,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_expandAll = QtGui.QAction(None,
             "expand all nodes", self)
         self.toolbar.button_expandAll.setStatusTip("Expand all the nodes of the tree")
+        self.toolbar.button_expandAll.setToolTip("Expand all nodes")
         self.toolbar.button_expandAll.triggered.connect(self.expandAll)
         self.toolbar.addAction(self.toolbar.button_expandAll)
 
@@ -502,6 +522,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_collapseAll = QtGui.QAction(None,
             "collapse all nodes", self)
         self.toolbar.button_collapseAll.setStatusTip("Collapse all the nodes of the tree")
+        self.toolbar.button_collapseAll.setToolTip("Collapse all nodes")
         self.toolbar.button_collapseAll.triggered.connect(self.collapseAll)
         self.toolbar.addAction(self.toolbar.button_collapseAll)
 
@@ -510,6 +531,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_findNode = QtGui.QAction(None,
             "find node (Ctrl+F)", self)
         self.toolbar.button_findNode.setStatusTip("Find node using criteria based on Name, Value and Type (Ctrl+F)")
+        self.toolbar.button_findNode.setToolTip("Find node (Ctrl+F)")
         self.toolbar.button_findNode.triggered.connect(self.findNodesTree)
         self.toolbar.addAction(self.toolbar.button_findNode)
         self.NameToBeFound = None
@@ -522,6 +544,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_findNextNode = QtGui.QAction(None,
             "find next node (F3)", self)
         self.toolbar.button_findNextNode.setStatusTip("Find next node (F3)")
+        self.toolbar.button_findNextNode.setToolTip("Find next node (F3)")
         self.toolbar.button_findNextNode.triggered.connect(self.findNextNodeTree)
         key_findNextNodeTree = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F3), self)
         key_findNextNodeTree.activated.connect(self.findNextNodeTree)
@@ -533,6 +556,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_newNodeTree = QtGui.QAction(None,
             "New node (Ctrl+N)", self)
         self.toolbar.button_newNodeTree.setStatusTip("Create a new node attached to the selected node in tree (Ctrl+N)")
+        self.toolbar.button_newNodeTree.setToolTip("New node (Ctrl+N)")
         self.toolbar.button_newNodeTree.triggered.connect(self.newNodeTree)
         self.toolbar.addAction(self.toolbar.button_newNodeTree)
 
@@ -540,6 +564,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_deleteNodeTree = QtGui.QAction(None,
             "remove selected nodes (Supr)", self)
         self.toolbar.button_deleteNodeTree.setStatusTip("remove selected node (Supr)")
+        self.toolbar.button_deleteNodeTree.setToolTip("delete node (Supr)")
         self.toolbar.button_deleteNodeTree.triggered.connect(self.deleteNodeTree)
         self.toolbar.addAction(self.toolbar.button_deleteNodeTree)
 
@@ -547,12 +572,14 @@ class MainWindow(QMainWindow):
         self.toolbar.button_swap = QtGui.QAction(None,
             "swap selected nodes", self)
         self.toolbar.button_swap.setStatusTip("After choosing two nodes, swap their position in the tree")
+        self.toolbar.button_swap.setToolTip("Swap 2 nodes")
         self.toolbar.button_swap.triggered.connect(self.swapNodes)
         self.toolbar.addAction(self.toolbar.button_swap)
 
         self.toolbar.button_copyNodeTree = QtGui.QAction(None,
             "copy selected nodes (Ctrl+C)", self)
         self.toolbar.button_copyNodeTree.setStatusTip("copy selected nodes (Ctrl+C)")
+        self.toolbar.button_copyNodeTree.setToolTip("copy nodes (Ctrl+C)")
         self.toolbar.button_copyNodeTree.triggered.connect(self.copyNodeTree)
         self.toolbar.addAction(self.toolbar.button_copyNodeTree)
         self.copiedNodes = []
@@ -560,12 +587,14 @@ class MainWindow(QMainWindow):
         self.toolbar.button_cutNodeTree = QtGui.QAction(None,
             "cut selected nodes (Ctrl+X)", self)
         self.toolbar.button_cutNodeTree.setStatusTip("cut selected nodes (Ctrl+X)")
+        self.toolbar.button_cutNodeTree.setToolTip("cut nodes (Ctrl+X)")
         self.toolbar.button_cutNodeTree.triggered.connect(self.cutNodeTree)
         self.toolbar.addAction(self.toolbar.button_cutNodeTree)
 
         self.toolbar.button_pasteNodeTree = QtGui.QAction(None,
             "paste nodes (Ctrl+V)", self)
         self.toolbar.button_pasteNodeTree.setStatusTip("Paste previously copied nodes at currently selected parent nodes (Ctrl+V)")
+        self.toolbar.button_pasteNodeTree.setToolTip("Paste nodes (Ctrl+V)")
         self.toolbar.button_pasteNodeTree.triggered.connect(self.pasteNodeTree)
         self.toolbar.addAction(self.toolbar.button_pasteNodeTree)
 
@@ -573,6 +602,7 @@ class MainWindow(QMainWindow):
         self.toolbar.button_theme = QtGui.QAction(None,
             "change interface color theme", self)
         self.toolbar.button_theme.setStatusTip("change interface color theme (will persist on next open of treelab)")
+        self.toolbar.button_theme.setToolTip("change color theme")
         self.toolbar.button_theme.triggered.connect(self.changeTheme)
         self.toolbar.addAction(self.toolbar.button_theme)
 
@@ -1003,8 +1033,9 @@ class MainWindow(QMainWindow):
             if node.type() != 'Link_t': continue
             item = node.QStandardItem
             path = node.path()
+            tab = self.getTab()
             try:
-                node.replaceLink()
+                node.replaceLink(tab.t.file)
             except BaseException as e:
                 err_msg = ''.join(traceback.format_exception(type(e),e,e.__traceback__))
                 msg = QMessageBox()

@@ -28,6 +28,7 @@ Node class
 *21/12/2021 - L. Bernardos - first creation*
 '''
 
+import os
 from fnmatch import fnmatch
 import numpy as np
 from .. import misc as m
@@ -926,13 +927,22 @@ class Node(list):
 
         return links
 
-    def replaceLink(self):
+    def replaceLink(self, file_location_prepend=""):
         if self.type() != 'Link_t': return
 
         value = self.value()
         for v in value:
             if v.startswith('target_file:'):
                 target_file = v.replace('target_file:','')
+                if file_location_prepend:
+                    if file_location_prepend.endswith(('.cgns', '.hdf', '.hdf5')) \
+                        and '/' in file_location_prepend:
+                        file_location_prepend= '/'.join(file_location_prepend.split('/')[:-1])
+                    old_sep = os.path.sep
+                    os.path.sep = '/'
+                    target_file = os.path.join(file_location_prepend,target_file)
+                    os.path.sep = old_sep
+                
             elif v.startswith('target_path:'):
                 target_path = v.replace('target_path:','')
         full_node = readNode(target_file, target_path)
@@ -942,9 +952,9 @@ class Node(list):
         for child in full_node.children():
             child.attachTo(self)
 
-    def replaceLinks(self, starting_at_top_parent=False):
+    def replaceLinks(self, starting_at_top_parent=False, file_location_prepend=""):
         n = self.getTopParent() if starting_at_top_parent else self
-        for link in n.group( Type='Link_t' ): link.replaceLink()
+        for link in n.group( Type='Link_t' ): link.replaceLink(file_location_prepend)
 
     def reloadNodeData(self, filename):
         updated_node = readNode( filename, self.path() )
