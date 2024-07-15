@@ -322,6 +322,22 @@ def test_load_from_path_plus_saveThisNodeOnly():
     print(n_value[0], n_value_updated[0])
     assert n_value[0] == n_value_updated[0]
 
+def test_merge():
+    b1 = cgns.Node(Name='Base')
+    z1 = cgns.Node(Name='zone1', Parent=b1)
+    cgns.Node(Name='zone2', Parent=b1)
+
+    b2 = b1.copy()
+    cgns.Node(Name='child1', Parent=z1)
+
+    z2 = b2.get(Name='zone2')
+    cgns.Node(Name='child2', Parent=z2)
+    cgns.Node(Name='zone3', Parent=b2)
+
+    b1.merge(b2)
+    assert b1 == ['Base', None, [['zone1', None, [['child1', None, [], 'DataArray_t']], 'DataArray_t'], ['zone2', None, [['child2', None, [], 'DataArray_t']], 'DataArray_t'], ['zone3', None, [], 'DataArray_t']], 'DataArray_t']
+
+
 if __name__ == '__main__':
     test_load_from_path_plus_saveThisNodeOnly()
     # test_saveThisNodeOnly()

@@ -137,7 +137,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             * an object :py:class:`treelab.cgns.tree.Tree`. In this case, this function does nothing.
 
             * a list, assumed to be a tree or a list or trees as manipulated by h5py, Cassiopee or Maia. 
-              In this case, this function performs a py:fun:`merge` operation on that list.
+              In this case, this function performs a py:fun:`add` operation on that list.
 
         only_skeleton : bool
             if :py:obj:`True`, then data associated to *DataArray_t* nodes is 
@@ -222,7 +222,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
         t = filename
 
     elif isinstance(filename, list):
-        t = merge(filename)
+        t = add(filename)
 
     else:
         raise TypeError('The first argument of function load must be either a file name (str), a Tree object, or a list')
@@ -238,7 +238,7 @@ def save(data, *args, **kwargs):
     ----------
 
         data : list
-            heterogeneous container of nodes compatible with :py:func:`merge`
+            heterogeneous container of nodes compatible with :py:func:`add`
 
         args
             mandatory comma-separated arguments of
@@ -400,9 +400,9 @@ def save(data, *args, **kwargs):
     if type(data) in ( Tree, Base, Zone ):
         t = data
     elif isinstance(data, list):
-        t = merge( data )
+        t = add( data )
     elif isinstance(data, dict):
-        t = merge( **data )
+        t = add( **data )
     else:
         raise TypeError('saving data of type %s not supported'%type(data))
 
@@ -410,9 +410,10 @@ def save(data, *args, **kwargs):
 
     return t
 
-def merge(*data1, **data2 ):
+def add(*data1, **data2 ):
     '''
-    Merge nodes into a single :py:class:`~treelab.cgns.tree.Tree` structure.
+    Add nodes into a single :py:class:`~treelab.cgns.tree.Tree` structure, by changing names
+    if necessary to ensure that all nodes at the same level have different names.
 
     Parameters
     ----------
@@ -446,7 +447,7 @@ def merge(*data1, **data2 ):
         b = cgns.Zone(Name='B')
         c = cgns.Zone(Name='C')
 
-        t = cgns.merge(a,b,c)
+        t = cgns.add(a,b,c)
 
     will produce the following tree structure:
 
@@ -479,7 +480,7 @@ def merge(*data1, **data2 ):
         b = cgns.Zone(Name='B')
         c = cgns.Zone(Name='C')
 
-        t = cgns.merge( FirstBase=a, SecondBase=[b, c] )
+        t = cgns.add( FirstBase=a, SecondBase=[b, c] )
 
     which will produce a :py:class:`~treelab.cgns.tree.Tree` with following structure:
 
@@ -499,12 +500,12 @@ def merge(*data1, **data2 ):
         In Python you can replace a call of pairs of ``keyword=value`` with 
         an unpacking of a :py:class:`dict`. In other terms, this:
 
-        >>> t = cgns.merge( FirstBase=a, SecondBase=[b, c] )
+        >>> t = cgns.add( FirstBase=a, SecondBase=[b, c] )
 
         is equivalent to
 
         >>> myDict = dict(FirstBase=a, SecondBase=[b, c])
-        >>> t = cgns.merge( **myDict )
+        >>> t = cgns.add( **myDict )
 
         note the use of the :py:class:`dict` unpacking operator :python:`**`
 
@@ -512,12 +513,12 @@ def merge(*data1, **data2 ):
         In Python you can replace a call of comma-separated arguments with 
         an unpacking of a :py:class:`list`. In other terms, this:
 
-        >>> t = cgns.merge( a, b, c )
+        >>> t = cgns.add( a, b, c )
 
         is equivalent to
 
         >>> myList = [ a, b, c ]
-        >>> t = cgns.merge( *myList )
+        >>> t = cgns.add( *myList )
 
         note the use of the :py:class:`list` unpacking operator :python:`*`
 
@@ -532,17 +533,41 @@ def merge(*data1, **data2 ):
         t1 = Tree( **data1 )
     else:
         t1 = Tree( )
-        t1.merge( data1 )
+        t1.add( data1 )
 
     if isinstance(data2, dict):
         t2 = Tree( **data2 )
     else:
         t2 = Tree( )
-        t2.merge( data2 )
+        t2.add( data2 )
 
-    t1.merge(t2)
+    t1.add(t2)
 
     return t1
+
+def merge(nodes):
+    '''
+    Merge nodes in a single :py:class:`~treelab.cgns.node.Node` structure. 
+    If two nodes have the same name, there will be only one in the result, with merged children.
+
+    Parameters
+    ----------
+    nodes : list
+        List of nodes to merge.
+
+    Returns
+    -------
+    Node
+        merged node
+    '''
+    from .node import Node
+    assert isinstance(nodes, list)
+    assert all([isinstance(n, Node) for n in nodes])
+
+    merged_node = nodes[0].copy()
+    for node in nodes[1:]:
+        merged_node.merge(node)
+    return merged_node
 
 def getZones( data ):
     '''
@@ -551,13 +576,13 @@ def getZones( data ):
     .. note::
         this function makes literally:
 
-        >>> zones = cgns.merge(data).getZones()
+        >>> zones = cgns.add(data).getZones()
 
     Parameters
     ----------
 
         data : list
-            heterogeneous container of nodes compatible with :py:func:`merge`
+            heterogeneous container of nodes compatible with :py:func:`add`
 
     Returns
     -------
@@ -604,12 +629,12 @@ def getZones( data ):
         F
 
     .. important::
-        since this function makes use of :py:func:`merge`, zones with identical
+        since this function makes use of :py:func:`add`, zones with identical
         names are renamed
     
 
     '''
-    t = merge( data ) # TODO avoid merge
+    t = add( data ) # TODO avoid add
     return t.zones()
 
 def getBases( data ):
@@ -619,13 +644,13 @@ def getBases( data ):
     .. note::
         this function makes literally:
 
-        >>> bases = cgns.merge(data).getBases()
+        >>> bases = cgns.add(data).getBases()
 
     Parameters
     ----------
 
         data : list
-            heterogeneous container of nodes compatible with :py:func:`merge`
+            heterogeneous container of nodes compatible with :py:func:`add`
 
     Returns
     -------
@@ -670,11 +695,11 @@ def getBases( data ):
         SecondBase
 
     .. important::
-        since this function makes use of :py:func:`merge`, bases with identical
+        since this function makes use of :py:func:`add`, bases with identical
         names are renamed
     
     '''
-    t = merge( data ) # TODO avoid merge
+    t = add( data ) # TODO avoid add
     return t.bases()
 
 def useEquation(data, *args, **kwargs):
@@ -687,7 +712,7 @@ def useEquation(data, *args, **kwargs):
     ----------
 
         data : list
-            heterogeneous container of nodes compatible with :py:func:`merge`
+            heterogeneous container of nodes compatible with :py:func:`add`
 
             .. note::
                 :py:class:`~treelab.cgns.zone.Zone`'s are modified    
@@ -704,7 +729,7 @@ def useEquation(data, *args, **kwargs):
     -------
 
         t : :py:class:`~treelab.cgns.tree.Tree`
-            same result as :py:func:`merge`
+            same result as :py:func:`add`
 
     Examples
     --------
@@ -742,7 +767,7 @@ def useEquation(data, *args, **kwargs):
 
     '''
 
-    t = merge( data ) # TODO avoid merge
+    t = add( data ) # TODO avoid add
     for zone in t.zones(): zone.useEquation(*args, **kwargs)
 
     return t
