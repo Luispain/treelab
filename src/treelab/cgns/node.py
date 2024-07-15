@@ -936,8 +936,11 @@ class Node(list):
             elif v.startswith('target_path:'):
                 target_path = v.replace('target_path:','')
         full_node = readNode(target_file, target_path)
+        self.setName(full_node.name())
         self.setValue(full_node.value())
         self.setType(full_node.type())
+        for child in full_node.children():
+            child.attachTo(self)
 
     def replaceLinks(self, starting_at_top_parent=False):
         n = self.getTopParent() if starting_at_top_parent else self
