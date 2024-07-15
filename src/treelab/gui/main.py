@@ -41,13 +41,13 @@ def get_user_theme():
     try:
         with open(treelab_user_config, 'r') as f:
             lines = f.readlines()
-            user_theme = lines[0].rstip('\n')
+            user_theme = lines[0].rstrip('\n')
             assert user_theme in AVAILABLE_THEMES
     except:
-        pass
-    for theme in qtvsc.Theme:
-        if theme.value['name'] == user_theme:
-            return theme
+        return 'Native'
+    # for theme in qtvsc.Theme:
+    #     if theme.value['name'] == user_theme:
+    #         return theme
     return user_theme
             
     
@@ -550,6 +550,16 @@ class MainWindow(QMainWindow):
         key_findNextNodeTree.activated.connect(self.findNextNodeTree)
         self.toolbar.addAction(self.toolbar.button_findNextNode)
 
+        self.toolbar.button_findPreviousNode = QtGui.QAction(None,
+            "find Previous node (Shift+F3)", self)
+        self.toolbar.button_findPreviousNode.setStatusTip("Find Previous node (Shift+F3)")
+        self.toolbar.button_findPreviousNode.setToolTip("Find Previous node (Shift+F3)")
+        self.toolbar.button_findPreviousNode.triggered.connect(self.findPreviousNodeTree)
+        key_findPreviousNodeTree = QtGui.QShortcut(QtGui.QKeySequence("Shift+F3"), self)
+        key_findPreviousNodeTree.activated.connect(self.findPreviousNodeTree)
+        self.toolbar.addAction(self.toolbar.button_findPreviousNode)
+
+
         self.toolbar.addSeparator()
 
         # green icon : QtGui.QIcon(GUIpath+"/icons/fugue-icons-3.5.6/plus") 
@@ -769,13 +779,12 @@ class MainWindow(QMainWindow):
         dlg.combo_box.currentIndexChanged.connect(previewTheme)
         if dlg.exec():
             new_theme = dlg.combo_box.currentText()
-            for theme in qtvsc.Theme:
-                if theme.value['name'] == new_theme:
-                    print(f'changing theme to {new_theme}')
-                    self.saveTheme(new_theme)
-                    self.setTheme()
-                    self.updateAllTreesStyles()
-                    return
+            if hasattr(qtvsc.Theme, new_theme):
+                print(f'changing theme to {new_theme}')
+                self.saveTheme(new_theme)
+                self.setTheme()
+                self.updateAllTreesStyles()
+                return
 
             # did not find a qtvsc theme, switching to Native
             new_theme = 'Native'
@@ -1289,6 +1298,26 @@ class MainWindow(QMainWindow):
         index = tree.model.indexFromItem(node.QStandardItem)
         tree.setCurrentIndex(index)
         # QApplication.restoreOverrideCursor()
+
+    def findPreviousNodeTree(self):
+        # QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.CurrentFoundNodeIndex -= 1
+        try:
+            node = self.FoundNodes[self.CurrentFoundNodeIndex]
+        except IndexError:
+            self.CurrentFoundNodeIndex = 0
+
+        try:
+            node = self.FoundNodes[self.CurrentFoundNodeIndex]
+        except IndexError:
+            self.CurrentFoundNodeIndex = 0
+            return
+
+        tree = self.getQtTree()
+        index = tree.model.indexFromItem(node.QStandardItem)
+        tree.setCurrentIndex(index)
+        # QApplication.restoreOverrideCursor()
+
 
     def expandAll(self):
         self.getQtTree().expandAll()
@@ -2133,7 +2162,11 @@ class MainWindow(QMainWindow):
 
     def setTheme(self):
         self.theme = get_user_theme()
-        if self.theme != 'Native': self.setStyleSheet(qtvsc.load_stylesheet(self.theme))
+        if self.theme != 'Native':
+            print("setting new theme !")
+            self.setStyleSheet(qtvsc.load_stylesheet(getattr(qtvsc.Theme,self.theme)))
+        else:
+            print("setTheme : Native scheme")
         self.updateColorsBasedOnTheme()
         self.createIconsOfButtons()
 
@@ -2177,6 +2210,13 @@ class MainWindow(QMainWindow):
             self.getColoredQtvscIcon(qtvsc.FaSolid.SEARCH))
         self.toolbar.button_findNextNode.setIcon(
             self.getColoredQtvscIcon(qtvsc.FaSolid.SHARE))
+
+        original_icon = self.getColoredQtvscIcon(qtvsc.FaSolid.SHARE)
+        pixmap = original_icon.pixmap(QtCore.QSize(64, 64))
+        transformed_pixmap = pixmap.transformed(QtGui.QTransform().rotate(180))
+        self.toolbar.button_findPreviousNode.setIcon(
+            QtGui.QIcon(transformed_pixmap))
+
         self.toolbar.button_newNodeTree.setIcon(
             self.getColoredQtvscIcon(qtvsc.FaSolid.PLUS))
         self.toolbar.button_deleteNodeTree.setIcon(
@@ -2292,9 +2332,8 @@ class ChangeThemeDialog(QDialog):
 
         # Create a combobox
         self.combo_box = QComboBox()
-        self.combo_box.addItem('Native')
-        for theme in qtvsc.Theme:
-            self.combo_box.addItem(theme.value['name'])
+        for theme in AVAILABLE_THEMES:
+            self.combo_box.addItem(theme)
 
         self.combo_box.setCurrentText(currently_selected)
         # self.combo_box.currentIndexChanged.connect(self.previewTheme)
