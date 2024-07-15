@@ -27,6 +27,18 @@ from .. import misc as m
 from .node import Node
 from . import utils
 
+# ref: https://github.com/CGNS/CGNS/blob/develop/src/cgnslib.h#L510
+ELEMENTS_TYPES = [
+    'Null', 'UserDefined',
+    'NODE', 'BAR_2', 'BAR_3', 'TRI_3', 'TRI_6', 'QUAD_4', 'QUAD_8', 'QUAD_9',
+    'TETRA_4', 'TETRA_10', 'PYRA_5', 'PYRA_14', 'PENTA_6', 'PENTA_15',
+    'PENTA_18', 'HEXA_8', 'HEXA_20', 'HEXA_27', 'MIXED', 'PYRA_13',
+    'NGON_n', 'NFACE_n', 'BAR_4', 'TRI_9', 'TRI_10', 'QUAD_12', 'QUAD_16',
+    'TETRA_16', 'TETRA_20', 'PYRA_21', 'PYRA_29', 'PYRA_30', 'PENTA_24',
+    'PENTA_38', 'PENTA_40', 'HEXA_32', 'HEXA_56', 'HEXA_64', 'BAR_5', 'TRI_12',
+    'TRI_15', 'QUAD_P4_16', 'QUAD_25', 'TETRA_22', 'TETRA_34', 'TETRA_35',
+    'PYRA_P4_29', 'PYRA_50', 'PYRA_55', 'PENTA_33', 'PENTA_66', 'PENTA_75',
+    'HEXA_44', 'HEXA_98', 'HEXA_125']
 
 class Zone(Node):
     """docstring for Zone"""
@@ -54,6 +66,21 @@ class Zone(Node):
     
     def isUnstructured(self):
         return self.get('ZoneType',Depth=1).value() == 'Unstructured'
+    
+    def getElementsTypes(self):
+        types = set()
+        elts_nodes = self.group(Type='Elements', Depth=1)
+
+        if not elts_nodes:
+            zone_type = self.get(Type='ZoneType', Depth=1).value()
+            if zone_type == 'Structured':
+                types.add('STRUCTURED')
+
+        else:
+            for elts in elts_nodes:
+                enum = int(elts[1][0])
+                types.add(ELEMENTS_TYPES[enum])
+        return types
 
     def dim(self):
         if self.isStructured():
