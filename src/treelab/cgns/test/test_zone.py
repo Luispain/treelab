@@ -38,3 +38,33 @@ def test_boundaries():
     zone.newFields('f3', Container='FlowSolution#Centers')
     boundaries = zone.boundaries()
     
+def test_updateShape():
+    zone = cgns.Zone(Name='Zone')
+    try:
+        zone.updateShape()
+    except AssertionError:
+        pass
+    else:
+        assert False
+
+    fs = cgns.Node(Name='FlowSolution', Type='FlowSolution', Parent=zone)
+    data = cgns.Node(Name='Data', Type='DataArray', Value=np.ones((3,2,5), order='F'), Parent=fs)
+
+    zone.updateShape()
+    assert np.array_equal(zone.value(), np.array([[3,2,0],[2,1,0],[5,4,0]], order='F'))
+
+    data.setValue(np.arange(10))
+    zone.updateShape()
+    assert np.array_equal(zone.value(), np.array([[10,9,0]], order='F'))
+
+    other_data = cgns.Node(Name='OtherData', Type='DataArray', Value=np.ones((3,9), order='F'), Parent=fs)
+    try:
+        zone.updateShape()
+    except AssertionError:
+        pass
+    else:
+        assert False
+    other_data.remove()
+
+    zone = cgns.Zone(Name='Zone', Children=[fs]) # zone shape is set in __init__
+    assert np.array_equal(zone.value(), np.array([[10,9,0]], order='F'))
