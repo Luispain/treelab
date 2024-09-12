@@ -48,7 +48,10 @@ class Zone(Node):
         self.setType('Zone_t')
 
         if self.value() is None:
-            self.setValue(np.array([[2,1,0]],dtype=np.int32,order='F'))
+            try:
+                self.updateShape()
+            except:
+                self.setValue(np.array([[2,1,0]],dtype=np.int32,order='F'))
 
 
         if not self.childNamed('ZoneType'):
@@ -484,5 +487,56 @@ class Zone(Node):
             fields += [field]
 
         return x, y, z, containers, fieldnames, fields
+    
+    def getArrayShapes(self):
+        shape_vertex = None
+        shape_cellcenter = None
 
+        def get_containers_at_vertex():
+            containers = self.group(Type='GridCoordinates', Depth=1)
+            for fs in self.group(Type='FlowSolution', Depth=1):
+                GridLocation = fs.get(Type='GridLocation')
+                if GridLocation is None or GridLocation == 'Vertex':
+                    containers.append(fs)
+            return containers
+
+        def get_containers_at_cellcenter():
+            containers = []
+            for fs in self.group(Type='FlowSolution', Depth=1):
+                GridLocation = fs.get(Type='GridLocation')
+                if GridLocation is not None and GridLocation == 'CellCenter':
+                    containers.append(fs)
+            return containers
+
+        for container in get_containers_at_vertex():
+            for node in container.group(Type='DataArray'):
+                shape = node.value().shape
+                if shape_vertex is None:
+                    shape_vertex = shape
+                else:
+                    assert shape == shape_vertex, f'{node.Path} has a different shape ({shape}) that others located at Vertex ({shape_vertex})'
+
+        for container in get_containers_at_cellcenter():
+            for node in container.group(Type='DataArray'):
+                shape = node.value().shape
+                if shape_cellcenter is None:
+                    shape_cellcenter = shape
+                else:
+                    assert shape == shape_cellcenter, f'{node.Path} has a different shape ({shape}) that others located at CellCenter ({shape_cellcenter})'
+
+        assert shape_vertex is not None or shape_cellcenter is not None, 'Cannot use this method on a Zone without DataArray nodes'
+        if shape_cellcenter is None:
+            shape_cellcenter = tuple(np.array(shape_vertex) - 1)
+        elif shape_vertex is None:
+            shape_vertex = tuple(np.array(shape_cellcenter) + 1)
+
+        return shape_vertex, shape_cellcenter
+    
+    def updateShape(self):
+        shape_vertex, _ = self.getArrayShapes()
+        if isinstance(shape_vertex, int):
+            shape_vertex = (shape_vertex,)
+
+        value = np.array([[v, v - 1, 0] for v in shape_vertex], dtype=np.int32, order='F')
+        self.setValue(value)
 
