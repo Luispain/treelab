@@ -614,7 +614,8 @@ class Node(list):
     def setValue(self, value):
         if isinstance(value,np.ndarray):
             if not value.flags['F_CONTIGUOUS']:
-                print('WARNING: numpy array being set to node %s is not order="F"'%self.name())
+                raise ValueError(f'WARNING: numpy array being set to node named {self.name()} is not order="F"')
+                
             self[1] = np.atleast_1d(value)
         elif isinstance(value,list) or isinstance(value,tuple):
 

@@ -21,6 +21,14 @@ import traceback
 import sys, os, time
 import numpy as np
 import qtvscodestyle as qtvsc
+import qtvscodestyle.qtpy
+
+qtv_split = qtvscodestyle.qtpy.__version__.split('.')
+if len(qtv_split) > 3:
+    # avoids error on version check
+    qtvscodestyle.qtpy.__version__ = '.'.join(qtv_split[:3]) 
+
+
 from .. import cgns
 from .. import __version__
 from timeit import default_timer as toc
