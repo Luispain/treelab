@@ -40,8 +40,8 @@ treelab = "treelab.gui.main:launch"
 packages = ["src/treelab"]
 # data_files = [["src/treelab/mybin/ex1.txt", "ex1.txt"]]
 
-[tool.hatch.build.targets.sdist.force-include]
-"src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
+# [tool.hatch.build.targets.sdist.force-include]
+# "src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
 
 # [tool.hatch.build.targets.wheel.force-include]
 # "src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
