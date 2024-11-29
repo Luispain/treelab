@@ -444,16 +444,20 @@ class Zone(Node):
             else:
                 raise ValueError(f'cannot extract {index+bound} from f{self.dim()}D zone')
 
+        x_orderF = np.copy(x,order='F')
+        y_orderF = np.copy(y,order='F')
+        z_orderF = np.copy(z,order='F')
+
         zone = utils.newZoneFromArrays(self.name()+f'_{index+bound}',
-                    ['x','y','z'], [x,y,z])
+                    ['x','y','z'], [x_orderF,y_orderF,z_orderF])
         contDict = dict()
         if len(containers) == 0: return zone
 
         for container, fieldname, field in zip(containers, fieldnames, fields):
             try:
-                contDict[container][fieldname] = field 
+                contDict[container][fieldname] = np.copy(field,order='F') 
             except KeyError:
-                contDict[container] = {fieldname:field}
+                contDict[container] = {fieldname:np.copy(field,order='F')}
 
         for container, fieldname in contDict.items():
             zone.setParameters(container, ContainerType='FlowSolution_t',

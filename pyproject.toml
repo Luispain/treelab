@@ -24,8 +24,7 @@ dependencies = [
   "numpy>=1.21.0",
   "h5py>=3.7.0",
   'matplotlib>3.6.2; python_version >= "3.8"',
-  'pyside6<6.4.0; python_version < "3.8"',
-  'pyside6>=6.4.0; python_version >= "3.8"',
+  'pyside6',
   'pyqt5; python_version < "3.8"', # required for compatibility with matplotlib backend
   "qtvscodestyle",
 ]
@@ -39,12 +38,10 @@ treelab = "treelab.gui.main:launch"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/treelab"]
+# data_files = [["src/treelab/mybin/ex1.txt", "ex1.txt"]]
 
-# [project.scripts]
-# treelab = "treelab.gui.main:launch"
-
-# [tool.hatch.build.targets.sdist.force-include]
-# "src/treelab/bin" = "treelab/bin"
+[tool.hatch.build.targets.sdist.force-include]
+"src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
 
 # [tool.hatch.build.targets.wheel.force-include]
-# "src/treelab/bin" = "treelab/bin"
+# "src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"

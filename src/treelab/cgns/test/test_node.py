@@ -2,6 +2,7 @@ import os
 import pprint
 import numpy as np
 from treelab import cgns
+import pytest
 
 def test_init1():
     node = cgns.Node()
@@ -337,6 +338,29 @@ def test_merge():
     b1.merge(b2)
     assert b1 == ['Base', None, [['zone1', None, [['child1', None, [], 'DataArray_t']], 'DataArray_t'], ['zone2', None, [['child2', None, [], 'DataArray_t']], 'DataArray_t'], ['zone3', None, [], 'DataArray_t']], 'DataArray_t']
 
+def test_replaceLinks(tmp_path):
+    output_dir = os.path.join(tmp_path,'OUTPUT')
+    try: os.makedirs(output_dir)
+    except: pass
+
+    a = cgns.Node(Name="a")
+    b = cgns.Node(Name="b")
+    c = cgns.Node(Name="c")
+    b.attachTo(a)
+    c.attachTo(b)
+    n = cgns.Node(Name="n", Value=np.array([0,1,2]))
+    n.attachTo(c)
+    a.save(os.path.join(output_dir,'fields.cgns'))
+    a.addLink(n.path(),'fields.cgns',output_dir)
+    a.replaceLinks(file_location_prepend=output_dir)
+
+def test_zone_path():
+    a = cgns.Tree()
+    b = cgns.Base()
+    c = cgns.Zone()
+    b.attachTo(a)
+    c.attachTo(b)
+    assert c.path() == "CGNSTree/Base/Zone" # https://github.com/Luispain/treelab/issues/14
 
 if __name__ == '__main__':
     test_load_from_path_plus_saveThisNodeOnly()

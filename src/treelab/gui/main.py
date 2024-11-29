@@ -1051,7 +1051,7 @@ class MainWindow(QMainWindow):
             item = node.QStandardItem
             tab = self.getTab()
             try:
-                node.replaceLink(tab.t.file)
+                node.replaceLink(os.path.split(tab.t.file)[0])
             except BaseException as e:
                 err_msg = ''.join(traceback.format_exception(type(e),e,e.__traceback__))
                 msg = QMessageBox()
