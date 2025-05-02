@@ -155,6 +155,15 @@ class Zone(Node):
         else:
             AttributeError('return_type=%s not supported'%return_type)
 
+    
+    def removeFields(self, FieldNames, Container='FlowSolution'):
+        fs = self.get(Container, Depth=1)
+        for field_name in FieldNames:
+            field_node = fs.get(field_name,Depth=1)
+            if field_node:
+                field_node.remove()
+            
+
     def fields(self, FieldNames, Container='FlowSolution',
              BehaviorIfNotFound='create', dtype=np.float64, return_type='list',
              ravel=False):
@@ -288,6 +297,41 @@ class Zone(Node):
         else:
             AttributeError('return_type=%s not supported'%return_type)
 
+    def assertFieldsSizeCoherency(self):
+        for container in self.group(Type='FlowSolution_t'):
+            data = container.group(Type='DataArray_t')
+            if not data: continue
+            
+            all_data_have_same_size = all([d.value().size for d in data])
+            if not all_data_have_same_size:
+                raise ValueError(f"not all fields have same size at container {container.path()}")
+            data_size = data[0].value().size
+
+            grid_location_node = container.get('GridLocation')
+            zone_npts = self.numberOfPoints()
+            zone_ncells = self.numberOfCells()
+            if grid_location_node:
+                grid_location = grid_location_node.value()
+                
+                if grid_location == "Vertex":
+                    if data_size != zone_npts:
+                        raise ValueError((f'mismatch between zone nb of points ({zone_npts})'
+                        f' and field size ({data_size}) at {container.path()}'))
+
+                elif grid_location == "CellCenter":
+                    if data_size != zone_ncells:
+                        raise ValueError((f'mismatch between zone nb of cells ({zone_ncells})'
+                        f' and field size ({data_size}) at {container.path()}'))
+
+                else: 
+                    raise ValueError(f'unsupported GridLocation "{grid_location}"')
+
+            else:
+                if data_size not in (zone_npts, zone_ncells):
+                    raise ValueError((f'data size ({data_size}) does not correspond'
+                        f' to neither zone npts ({zone_npts}) nor ncells ({zone_ncells})'))
+
+
     def inferLocation(self, Container ):
         if Container == 'GridCoordinates': return 'Vertex'
         FlowSolution = self.get( Name=Container )
@@ -298,10 +342,21 @@ class Zone(Node):
             return FlowSolution.get( Name='GridLocation' ).value()
         except:
             if not FlowSolution.children(): return m.AutoGridLocation[ Container ]
-            FieldSize = len(FlowSolution.children()[0].value(ravel=True))
-            if FieldSize == zone.numberOfPoints(): return 'Vertex'
-            elif FieldSize == zone.numberOfCells(): return 'CellCenter'
-            else: raise ValueError('could not determine location of '+FlowSolution.path())
+
+            FieldSize = self._size_of_data_array_in_container(FlowSolution)
+            if FieldSize == self.numberOfPoints(): return 'Vertex'
+            elif FieldSize == self.numberOfCells(): return 'CellCenter'
+            else:
+                raise ValueError((f'new field size ({FieldSize}) did not match zone'
+                f' npts ({self.numberOfPoints()}) nor ncells ({self.numberOfCells()})'
+                f' at container {FlowSolution.path()}'))
+
+    @staticmethod
+    def _size_of_data_array_in_container(flow_solution_node):
+        child = flow_solution_node.get(Type="DataArray_t")
+        if not child: return 0
+        return child.value().size
+
 
     def useEquation(self, equation, Container='FlowSolution', ravel=False):
         RegExpr = r"{[^}]*}"

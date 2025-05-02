@@ -1,3 +1,4 @@
+*.vscode
 *.pyc
 *.odg
 __pycache__
