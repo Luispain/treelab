@@ -7,6 +7,7 @@ path = "src/treelab/__init__.py"
 
 [project]
 name = "mola-treelab"
+license = { text = "LGPL-3.0-only" }
 dynamic = ["version"]
 authors = [
   { name="Luis Bernardos", email="luisfco.bernardos@gmail.com" },
@@ -36,12 +37,8 @@ Issues = "https://github.com/Luispain/treelab/issues"
 [project.gui-scripts]
 treelab = "treelab.gui.main:launch"
 
+[tool.hatch.build]
+include = ["LICENSE"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/treelab"]
-# data_files = [["src/treelab/mybin/ex1.txt", "ex1.txt"]]
-
-# [tool.hatch.build.targets.sdist.force-include]
-# "src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
-
-# [tool.hatch.build.targets.wheel.force-include]
-# "src/treelab/mybin/ex1.txt" = "mybintest/ex1.txt"
