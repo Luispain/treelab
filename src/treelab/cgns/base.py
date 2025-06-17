@@ -52,7 +52,7 @@ class Base(Node):
         return self.value()[0]
 
     def zones(self):
-        return [c for c in self.children() if isinstance(c, Zone)]
+        return [c for c in self.children() if c.type()=="Zone_t"]
 
     def setCellDimension(self, CellDimension):
         self.value()[0] = CellDimension

@@ -65,10 +65,16 @@ class Zone(Node):
         t.save(*args,**kwargs)
 
     def isStructured(self):
-        return self.get('ZoneType',Depth=1).value() == 'Structured'
+        zone_type_node = self.get('ZoneType',Depth=1)
+        if not zone_type_node:
+            return False
+        return zone_type_node.value() == 'Structured'
     
     def isUnstructured(self):
-        return self.get('ZoneType',Depth=1).value() == 'Unstructured'
+        zone_type_node = self.get('ZoneType',Depth=1)
+        if not zone_type_node:
+            return False
+        return zone_type_node.value() == 'Unstructured'
     
     def getElementsTypes(self):
         types = set()

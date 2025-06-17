@@ -177,7 +177,7 @@ class Node(list):
         if Value is not None:
             self.setValue(Value)
         if isinstance(Type,str):
-            if not Type.endswith('_t'): Type += '_t'
+            if not Type.endswith('_t') and not Type.startswith('"'): Type += '_t'
             self[3] = Type
         self.Parent = Parent
         if isinstance(Parent, Node):
@@ -657,7 +657,7 @@ class Node(list):
 
     def setType(self, newType):
         try:
-            if not newType.endswith('_t'):
+            if not newType.endswith('_t') and not newType.startswith('"'):
                 newType += '_t'
         except:
             pass
@@ -683,7 +683,6 @@ class Node(list):
                     newchildname = childname+'.%d'%i
                 child[0] = newchildname
 
-        child = castNode( child )
         child.Parent = self
         child.Path = self.Path + '/' + child[0]
         if position == 'last':
@@ -691,7 +690,6 @@ class Node(list):
         elif isinstance(position,int):
             self[2].insert(position, child)
         child._updateSelfAndChildrenPaths()
-
 
     def addChildren(self, children, override_sibling_by_name=True):
         if isinstance(children, Node):
@@ -757,10 +755,28 @@ class Node(list):
 
     def get(self, Name=None, Value=None, Type=None, Depth=100):
         if Depth < 1: return
-        if Type is not None and not Type.endswith('_t'): Type += '_t'
+
+        if Type is not None:
+            if not Type.startswith('"') and not Type.endswith('_t'):
+                Type += '_t'
+
         for child in self.children():
+            
+            if not isinstance(child,Node):
+                try: child_name = str(child[0])
+                except: child_name = '<unable_to_find_name>'
+                raise TypeError(f'Node {self.path()} contained a child "{child_name}" which was not an instance of Node class')
+
             NameMatch = fnmatch(child.name(), Name) if Name is not None else True
-            TypeMatch = fnmatch(child.type(), Type) if Type is not None else True
+
+            if Type is not None:
+                if Type.startswith('"'):
+                    TypeMatch = Type == child.type() # fnmatch disabled due to incompatibility with brackets
+                else:
+                    TypeMatch = fnmatch(child.type(), Type)    
+            else:
+                TypeMatch = True
+
             ValueMatch = _compareValue(child, Value) if Value is not None else True
             if NameMatch == ValueMatch == TypeMatch == True:
                 found_node = child
@@ -781,7 +797,7 @@ class Node(list):
             child._group(Name,Value,Type,Depth-1,Found)
 
     def group(self, Name=None, Value=None, Type=None, Depth=100):
-        if Type is not None and not Type.endswith('_t'): Type += '_t'
+        if Type is not None and not Type.endswith('_t') and not Type.startswith('"'): Type += '_t'
         Found = []
         self._group(Name, Value, Type, Depth, Found)
         return Found

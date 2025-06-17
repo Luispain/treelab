@@ -85,7 +85,7 @@ class Tree(Node):
     def zoneNames(self):
         allzones = []
         for b in self.bases():
-            allzones.extend([z.name() for z in b.children() if isinstance(z,Zone)])
+            allzones.extend([z.name() for z in b.zones()])
 
     def setUniqueZoneNames(self):
         for zone in self.zones():

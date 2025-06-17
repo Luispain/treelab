@@ -20,7 +20,9 @@ from .. import misc as m
 
 def castNode( NodeOrNodelikeList, Parent=None ):
     '''
-    toto
+    Transform a Node or a CGNS Python-like 4-item list into treelab objects
+    (Tree, Base, Zone, Node...). 
+    This function is applied recursively on children.
     '''
     from .node import Node
 
@@ -28,13 +30,9 @@ def castNode( NodeOrNodelikeList, Parent=None ):
         node = Node(NodeOrNodelikeList, Parent=Parent)
     else:
         node = NodeOrNodelikeList
+    
     for i, n in enumerate(node[2]):
         node[2][i] = castNode(n, Parent=node)
-
-
-    # node = Node(NodeOrNodelikeList, Parent=Parent)
-    # for i, n in enumerate(node.children()):
-    #     node[2][i] = castNode(n, Parent=node)
 
     if node[3] == 'Zone_t':
         from .zone import Zone
@@ -67,13 +65,13 @@ def castNode( NodeOrNodelikeList, Parent=None ):
         t = Tree(node)
         node = t
 
-
     return node
 
 def load_workflow_parameters(filename):
     from .tree import Tree
     from .read_write import h5py2cgns as h
     wfp = h.load_from_path(filename, 'WorkflowParameters')
+    wfp = castNode(wfp)
     tree = Tree()
     tree.addChild(wfp)
     wfp_dict = tree.getParameters('WorkflowParameters',transform_numpy_scalars=True)
@@ -227,7 +225,9 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
     else:
         raise TypeError('The first argument of function load must be either a file name (str), a Tree object, or a list')
 
-    return t
+
+
+    return castNode(t)
 
 def save(data, *args, **kwargs):
     '''
@@ -926,3 +926,19 @@ def newZoneFromDict(Name, DictWithArrays):
         Arrays += [DictWithArrays[k]]
 
     return newZoneFromArrays(Name, ArraysNames, Arrays)
+
+
+def check_only_contains_node_instances( node ):
+    from .node import Node
+    
+    if not isinstance(node, Node):
+        return False
+
+    for child in node.children():
+        if not check_only_contains_node_instances(child):
+            return False
+
+    return True
+
+def assert_only_contains_node_instances( node ):
+    assert check_only_contains_node_instances(node)

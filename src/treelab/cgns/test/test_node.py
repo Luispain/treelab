@@ -362,6 +362,25 @@ def test_zone_path():
     c.attachTo(b)
     assert c.path() == "CGNSTree/Base/Zone" # https://github.com/Luispain/treelab/issues/14
 
+def test_get_legacy_cgns_node_type():
+    # https://github.com/Luispain/treelab/issues/15
+    legacy_type = '"int[IndexDimension]"'
+    a = cgns.Node()
+    b = cgns.Node(Type=legacy_type)
+    a.addChild(b)
+    c = a.get(Type=legacy_type)
+    assert c
+
+def test_write_and_read_legacy_cgns_node_type():
+    # https://github.com/Luispain/treelab/issues/15
+    legacy_type = '"int[IndexDimension]"'
+    a = cgns.Node(Type=legacy_type)
+    a.save("test.cgns")
+    t = cgns.load("test.cgns")
+    os.unlink('test.cgns')
+    a = t.get(Type=legacy_type)
+    assert a
+
 if __name__ == '__main__':
     test_load_from_path_plus_saveThisNodeOnly()
     # test_saveThisNodeOnly()

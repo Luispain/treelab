@@ -14,5 +14,7 @@ from .utils import (castNode,
                     getBases,
                     useEquation,
                     newZoneFromArrays,
-                    newZoneFromDict)
+                    newZoneFromDict,
+                    check_only_contains_node_instances,
+                    assert_only_contains_node_instances)
 
