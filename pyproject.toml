@@ -30,6 +30,11 @@ dependencies = [
   "qtvscodestyle",
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest",
+]
+
 [project.urls]
 Homepage = "https://github.com/Luispain/treelab"
 Issues = "https://github.com/Luispain/treelab/issues"
