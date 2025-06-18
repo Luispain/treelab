@@ -381,6 +381,16 @@ def test_write_and_read_legacy_cgns_node_type():
     a = t.get(Type=legacy_type)
     assert a
 
+def test_get_at_path():
+    a = cgns.Node(Name="a")
+    b = cgns.Node(Name="b")
+    c = cgns.Node(Name="c")
+    b.addChild(c)
+    a.addChild(b)
+    c2 = a.getAtPath("a/b/c")
+    assert c is c2
+
+
 if __name__ == '__main__':
     test_load_from_path_plus_saveThisNodeOnly()
     # test_saveThisNodeOnly()

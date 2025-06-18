@@ -184,7 +184,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             from .read_write import h5py2cgns as h
 
             t, f, links = h.load(filename, only_skeleton=only_skeleton)
-            t = Tree(t, defaultCGNSLibraryVersion=None)
+            t = castNode(t)
             for link in links:
                 t.addLink(path=link[3], target_file=link[1], target_path=link[2])
 
@@ -193,7 +193,8 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             t, links, paths = CGM.load(filename)
             for p in paths:
                 raise IOError('file %s : could not read node %s'%(filename,str(p)))
-            t = Tree(t, defaultCGNSLibraryVersion=None)
+            t = castNode(t)
+
             for link in links:
                 t.addLink(path=link[3], target_file=link[1], target_path=link[2])
 
@@ -201,7 +202,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             import Converter.PyTree as C
             links = []
             t = C.convertFile2PyTree(filename, links=links)
-            t = Tree(t, defaultCGNSLibraryVersion=None)
+            t = castNode(Tree(t))
             for link in links:
                 t.addLink(path=link[3], target_file=link[1], target_path=link[2])
 
@@ -209,7 +210,7 @@ def load(filename, only_skeleton=False, backend='h5py2cgns'):
             import maia
             from mpi4py import MPI
             t = maia.io.file_to_dist_tree(filename, MPI.COMM_WORLD)
-            t = Tree(t, defaultCGNSLibraryVersion=None)
+            t = castNode(t)
             # TODO add links
             print('Links are not handle with the maia backend for now.')
 

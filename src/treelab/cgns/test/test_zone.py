@@ -68,3 +68,15 @@ def test_updateShape():
 
     zone = cgns.Zone(Name='Zone', Children=[fs]) # zone shape is set in __init__
     assert np.array_equal(zone.value(), np.array([[10,9,0]], order='F'))
+
+def test_get_zones():
+    t = cgns.Tree()
+    b = cgns.Base()
+    z1 = cgns.Zone()
+    z2 = cgns.Zone()
+    z3 = cgns.Zone()
+    t.addChild(b)
+    b.addChildren([z1,z2,z3], override_sibling_by_name=False)
+    
+    assert len(t.zones()) == 3
+    assert len(b.zones()) == 3
