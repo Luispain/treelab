@@ -178,7 +178,7 @@ def build_cgns_nodelist( group, links=[], ignore_DataArray=False ):
             children += [ childnode ]
 
         cgns_type = extract_type(group)
-        if ignore_DataArray and cgns_type == 'DataArray_t' and nodename not in nodesNamesToRead:
+        if ignore_DataArray and cgns_type in ['DataArray_t', 'IndexArray_t'] and nodename not in nodesNamesToRead:
             cgns_value = '_skeleton'
         else:
             cgns_value = extract_value(group)
