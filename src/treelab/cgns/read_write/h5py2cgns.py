@@ -92,10 +92,20 @@ def save(t, filename, links=[]):
 
 
 def nodelist_to_group(f, node, nodepath=None, links=[] ):
+
     if nodepath is not None:
-        group = f.create_group( nodepath.encode(encoding), track_order=True )
+        try:
+            group = f.create_group( nodepath.encode(encoding), track_order=True )
+        except Exception as e:
+            errmsg = f'could not create group for node at path {nodepath}'
+            raise ValueError(errmsg) from e
     else:
-        group = f.create_group( node[0].encode(encoding), track_order=True )
+        try:
+            group = f.create_group( node[0].encode(encoding), track_order=True )
+        except Exception as e:
+            errmsg = f'could not create {f.name}/{node[0]} typed {node[3]} with {len(node[2])} children'
+            raise ValueError(errmsg) from e
+
     group.attrs.create('name',  np.array(node[0].encode(encoding), dtype=str_dtype) )
     group.attrs.create('flags', np.array([1],dtype=np.int32))
     group.attrs.create('label', np.array(node[3].encode(encoding), dtype=str_dtype) )
