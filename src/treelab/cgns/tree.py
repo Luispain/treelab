@@ -222,3 +222,10 @@ class Tree(Node):
             types.update(base.getElementsTypes())
         return types
     
+    def renameFamily(self, current_fam_name: str, new_fam_name: str, verbose: bool=True):
+        for base in self.bases():
+            base.renameFamily(current_fam_name, new_fam_name, verbose)
+    
+    def forceShorterZoneNames(self, max_length=32, root_name='Zone', max_number_of_figures=4, verbose=True):
+        for base in self.bases():
+            base.forceShorterZoneNames(max_length, root_name, max_number_of_figures, verbose)
