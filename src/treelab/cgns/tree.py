@@ -229,3 +229,8 @@ class Tree(Node):
     def forceShorterZoneNames(self, max_length=32, root_name='Zone', max_number_of_figures=4, verbose=True):
         for base in self.bases():
             base.forceShorterZoneNames(max_length, root_name, max_number_of_figures, verbose)
+
+    def removeEmptyZones(self):
+        for base in self.bases():
+            base.removeEmptyZones()
+            

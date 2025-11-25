@@ -275,3 +275,9 @@ class Base(Node):
 
                 # Finally change zone name
                 zone.setName(new_name)
+
+    def removeEmptyZones(self):
+        for zone in self.zones():
+            if zone.isEmpty(): 
+                zone.remove()
+                

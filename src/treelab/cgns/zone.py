@@ -605,3 +605,12 @@ class Zone(Node):
         value = np.array([[v, v - 1, 0] for v in shape_vertex], dtype=np.int32, order='F')
         self.setValue(value)
 
+    def isEmpty(self):
+        GridCoordinates = self.get(Type='GridCoordinates', Depth=1)
+        if GridCoordinates is None:
+            return True
+        coord = GridCoordinates.get(Type='DataArray')
+        if coord is None or coord.value() is None:
+            return True
+        
+        return False
