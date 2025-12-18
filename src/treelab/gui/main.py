@@ -33,8 +33,8 @@ from .. import cgns
 from .. import __version__
 from timeit import default_timer as toc
 
-# import matplotlib
-# matplotlib.use('Qt5Cairo')
+import matplotlib
+matplotlib.use("QtAgg", force=True)
 import matplotlib.pyplot as plt
 plt.ion()
 
