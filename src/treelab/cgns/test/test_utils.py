@@ -37,56 +37,14 @@ def test_add_from_kwargs():
     assert len(d.zones()) == 3
     assert len(d.bases()) == 2
 
-def concatenate_flow_solution_nodes_at_vertex_and_cell(nodes, approach="constructor"):
-    if   isinstance(nodes, cgns.zone.Zone):
-        if approach == "constructor":
-            t = cgns.Base(Children = [nodes])
 
-        elif approach == "addChild":
-            t = cgns.Base()
-            t.addChild(nodes)
-
-        else:
-            raise AttributeError("approach must be 'constructor' or 'addChild'")
-
-    elif isinstance(nodes, cgns.node.Node):
-        t = nodes
-    elif isinstance(nodes, list):
-        for node in nodes: concatenate_flow_solution_nodes_at_vertex_and_cell(node)
-    else:
-        raise Exception(f"'nodes' must be a Tree, a Base, a Zone or a list:\n" \
-                        f"          type(nodes) = {type(nodes)}")
-
-    #t = cgns.add([t])
-    for zone in t.group(Type = 'Zone_t'):
-        vertex_fields = {}
-        cell_fields   = {}
-        for fs in zone.group(Type = 'FlowSolution_t'):
-            fields = {n.name(): n.value().copy()
-                                         for n in fs.group(Type = 'DataArray_t')}
-            if zone.inferLocation  (fs.name()) == 'Vertex':
-                vertex_fields.update(fields)
-            elif zone.inferLocation(fs.name()) == 'CellCenter':
-                cell_fields  .update(fields)
-            else: continue
-
-            fs.remove()
-
-        for array in [[vertex_fields, 'FlowSolution',         'Vertex'],
-                      [cell_fields,   'FlowSolution#Centers', 'CellCenter']]:
-            fields, Container, GridLocation = array
-            if len(fields):
-                zone.newFields(fields, Container = Container,
-                                                     GridLocation = GridLocation)
-
-def get_zones_with_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data(heterogeneous_data):
+def get_zones_and_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data(heterogeneous_data):
     assert heterogeneous_data
     t = cgns.add(**heterogeneous_data)
     output_zones = []
     for zone in t.zones():
         concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone(zone)    
         output_zones += [zone]
-    
     return output_zones
 
 def concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone(zone : cgns.Zone):
@@ -115,16 +73,6 @@ def concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone(zone : cgns.Zone)
             zone.newFields(fields, Container = Container,
                                                     GridLocation = GridLocation)
 
-def test_concatenate_flow_solution_nodes_at_vertex_and_cell():
-    for approach in ['constructor','addChild']:
-        zone1 = cgns.Zone(Name = 'Zone1')
-        zone1.newFields({f'f0': [0.]}, Container = f'FV1', GridLocation = 'Vertex')
-        zone1.newFields({f'f0': [1.]}, Container = f'FV2', GridLocation = 'Vertex')
-        zone1.newFields({f'f1': [0.]}, Container = f'FC1', GridLocation = 'CellCenter')
-        zone1.newFields({f'f2': [1.]}, Container = f'FC2', GridLocation = 'CellCenter')
-        zone = zone1.copy(deep = True)
-        concatenate_flow_solution_nodes_at_vertex_and_cell(zone, approach)
-
 
 def test_concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone():
     zone1 = cgns.Zone(Name = 'Zone1')
@@ -135,17 +83,16 @@ def test_concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone():
     zone = zone1.copy(deep = True)
     concatenate_flow_solution_nodes_at_vertex_and_cell_of_zone(zone)
 
-
-def test_get_zones_with_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data():
+def test_get_zones_and_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data():
     zone1 = cgns.Zone(Name = 'Zone1')
     zone1.newFields({f'f0': [0.]}, Container = f'FV1', GridLocation = 'Vertex')
     zone1.newFields({f'f0': [1.]}, Container = f'FV2', GridLocation = 'Vertex')
     zone1.newFields({f'f1': [0.]}, Container = f'FC1', GridLocation = 'CellCenter')
     zone1.newFields({f'f2': [1.]}, Container = f'FC2', GridLocation = 'CellCenter')
     zone = zone1.copy(deep = True)
-    zones = get_zones_with_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data(dict(MyBase=zone))
-    assert zones
+    zones = get_zones_and_concatenate_flow_solution_nodes_at_vertex_and_cell_from_heterogeneous_data(dict(MyBase=zone))
     t = cgns.add(zones)
+
 
 def test_remove_containers_after_add():
     fs1 = cgns.Node(Name="fs1", Type="FlowSolution_t")
