@@ -80,3 +80,13 @@ def test_get_zones():
     
     assert len(t.zones()) == 3
     assert len(b.zones()) == 3
+
+def test_remove_containers_in_zone():
+    fs1 = cgns.Node(Name="fs1", Type="FlowSolution_t")
+    zone = cgns.Zone(Name='MyZone')
+    zone.addChild(fs1)
+
+    for fs in zone.group(Type="FlowSolution_t"):
+        fs.remove()
+
+    assert len(zone.group(Type="FlowSolution_t")) == 0

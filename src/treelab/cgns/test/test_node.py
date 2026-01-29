@@ -256,6 +256,46 @@ def test_remove():
     b.remove()
     assert a == ['TheParent', None, [], 'DataArray_t']
 
+def test_remove_deep_by_add_child():
+    a = cgns.Node(Name='a')
+    b = cgns.Node(Name='b')
+    z1 = cgns.Node(Name='z1', Type="z_t")
+    z2 = cgns.Node(Name='z2', Type="z_t")
+    a.addChild(b)
+    b.addChild(z1)
+    b.addChild(z2)
+
+    for z in a.group(Type="z_t"):
+        z.remove()
+
+    assert not a.group(Type="z_t")
+    assert not b.children()
+
+def test_remove_deep_by_children_constructor():
+    z1 = cgns.Node(Name='z1', Type="z_t")
+    z2 = cgns.Node(Name='z2', Type="z_t")
+    b = cgns.Node(Name='b', Children=[z1,z2])
+    a = cgns.Node(Name='a', Children=[b])
+
+    for z in a.group(Type="z_t"):
+        z.remove()
+
+    assert not a.group(Type="z_t")
+    assert not b.children()
+
+def test_remove_container_after_new_fields():
+    zone = cgns.Zone(Name = 'MyZone')
+    zone.newFields({f'f0': [0.]}, Container = f'FV1', GridLocation = 'Vertex')
+    zone.newFields({f'f0': [1.]}, Container = f'FV2', GridLocation = 'Vertex')
+    zone.newFields({f'f1': [0.]}, Container = f'FC1', GridLocation = 'CellCenter')
+    zone.newFields({f'f2': [1.]}, Container = f'FC2', GridLocation = 'CellCenter')
+
+    for fs in zone.group(Type="FlowSolution_t"):
+        fs.remove()
+        assert fs.parent() is zone
+
+
+
 def test_findAndRemoveNode():
     # create a node and attach it to another node 
     a = cgns.Node( Name='TheParent')

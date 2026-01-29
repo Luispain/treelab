@@ -52,6 +52,8 @@ class Tree(Node):
                  override_sibling_by_name=False)
 
         self.setUniqueBaseNames()
+        self._updateSelfAndChildrenPaths()
+
 
     def bases(self):
         return [c for c in self.children() if isinstance(c, Base)]

@@ -42,6 +42,7 @@ class Base(Node):
             self.setValue(BaseValue)
 
         if self.name() == 'Node': self.setName( 'Base' )
+        self._updateSelfAndChildrenPaths()
 
     def save(self,*args,**kwargs):
         from .tree import Tree

@@ -58,6 +58,7 @@ class Zone(Node):
             Node(Name='ZoneType',Value='Structured',Type='ZoneType_t',Parent=self)
 
         if self.name() == 'Node': self.setName( 'Zone' )
+        self._updateSelfAndChildrenPaths()
 
     def save(self,*args,**kwargs):
         from .tree import Tree
