@@ -569,16 +569,7 @@ class Node(list):
         n = self[1]
         if isinstance(n, np.ndarray):
             out = []
-            if n.dtype.char == 'S':
-                if len(n.shape) == 1:
-                    return n.tobytes().decode()
-                elif len(n.shape) == 0:
-                    return n.tobytes().decode()
-                for i in range(n.shape[1]):
-                    v = n[:,i].tobytes().decode()
-                    out.append(v.strip())
-                return out
-            elif n.dtype.char == 'c':
+            if n.dtype.char in ['S', 'c']:
                 if len(n.shape) == 1:
                     return n.tobytes().decode()
                 elif len(n.shape) == 0:
