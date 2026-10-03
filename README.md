@@ -48,17 +48,16 @@ export PATH=$PATH:~/.local/bin
 Usage
 =====
 
-You may use the API of TreeLab using a python script:
+TreeLab is the Qt editor.  Its tree representation and CGNS/HDF5 I/O are
+provided by [noder](https://github.com/onera/noder); applications that need
+to manipulate trees should import `noder` directly.  The former
+`treelab.cgns` module has intentionally been removed.
 
-```python
-from treelab import cgns
-n = cgns.Node( Name='jamon', Value=['croquetas', 'morcilla'])
-n.save('out.cgns', verbose=True)
-```
-
-From command line, you can launch the GUI using `treelab` command, optionnaly followed by the absolute or relative path of the CGNS file to open and optionally using the `-s` option in order to load only the skeleton of the tree, for example:
+From command line, launch the GUI with one or more CGNS/HDF5 files.  Use
+`-r` for read-only navigation:
 ```
 treelab out.cgns
+treelab -r large_file.cgns
 ```
 
 ![treelab showing node](doc/readme_node.png)

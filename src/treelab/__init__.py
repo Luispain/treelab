@@ -17,6 +17,14 @@
 
 __version__ = '0.4.6'
 
+
+def __getattr__(name):
+    if name == "cgns":
+        raise ModuleNotFoundError(
+            "treelab cgns internals have migrated to noder. Use noder instead"
+        )
+    raise AttributeError(name)
+
 try:
     import os
     __TREELAB_PATH__ = os.path.sep.join(__file__.split(os.path.sep)[:-2])

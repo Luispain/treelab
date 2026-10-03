@@ -15,7 +15,7 @@ authors = [
 ]
 description = "MOLA-treelab is an ONERA code that implements an interface to CGNS"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
@@ -23,11 +23,9 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.21.0",
-  "h5py>=3.7.0",
-  'matplotlib>3.6.2; python_version >= "3.8"',
+  "noder>=1.2.0",
+  "matplotlib>=3.6.2",
   'pyside6',
-  'pyqt5; python_version < "3.8"', # required for compatibility with matplotlib backend
-  "qtvscodestyle",
 ]
 
 [project.optional-dependencies]
