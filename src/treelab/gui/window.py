@@ -18,6 +18,7 @@ from .payload import (
 
 GUI_PATH = Path(__file__).resolve().parent
 TREE_ICON = GUI_PATH / "icons" / "fugue-icons-3.5.6" / "tree.png"
+MOLA_ICON = GUI_PATH / "icons" / "OwnIcons" / "mola_v2_only_logo.svg"
 
 
 class TreeView(QtWidgets.QTreeView):
@@ -81,8 +82,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.views: list[DocumentView] = []
         self.clipboard_nodes: list = []
         self.setWindowTitle("TreeLab")
-        if TREE_ICON.exists():
-            self.setWindowIcon(QtGui.QIcon(str(TREE_ICON)))
+        if MOLA_ICON.exists():
+            self.setWindowIcon(QtGui.QIcon(str(MOLA_ICON)))
 
         self.tabs = QtWidgets.QTabWidget(self)
         self.tabs.setTabsClosable(True)
