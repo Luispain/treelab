@@ -67,8 +67,161 @@ def test_open_file_tree_has_visible_model_rows(tmp_path, qapp):
 
     assert tree.model().rowCount(root_index) == 1
     assert tree.visualRect(root_index).height() > 0
+    assert tree.selected_nodes() == [tree.model().node(root_index)]
+    assert tree.hasFocus()
+    toolbar = window.findChild(QtWidgets.QToolBar, "treeToolsToolbar")
+    assert toolbar is not None
+    assert toolbar.isMovable()
+    assert toolbar.isFloatable()
+    assert window.action_open.statusTip() == "Open (Ctrl+O)"
     window.close()
     qapp.processEvents()
+
+
+def test_safe_mode_shows_dialog_and_corrupted_marker(tmp_path, qapp, monkeypatch):
+    h5py = pytest.importorskip("h5py")
+    filename = tmp_path / "safe-mode.cgns"
+    with h5py.File(filename, "w", track_order=True) as h5file:
+        h5file.attrs["name"] = np.bytes_("HDF5 MotherNode")
+        h5file.attrs["label"] = np.bytes_("Root Node of HDF5 File")
+        h5file.attrs["type"] = np.bytes_("MT")
+        malformed = h5file.create_group("MissingLabel", track_order=True)
+        malformed.attrs["name"] = np.bytes_("MissingLabel")
+        malformed.attrs["type"] = np.bytes_("MT")
+        valid = h5file.create_group("Valid", track_order=True)
+        valid.attrs["name"] = np.bytes_("Valid")
+        valid.attrs["label"] = np.bytes_("UserDefinedData_t")
+        valid.attrs["type"] = np.bytes_("MT")
+
+    dialogs = []
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "warning",
+        staticmethod(lambda *args: dialogs.append(args)),
+    )
+    window = MainWindow([str(filename)], safe_mode=True)
+    document = window.current_document()
+    assert document.reader.has_warnings()
+    assert [child.name() for child in document.root.loaded_children()] == [
+        "Corrupted", "Valid"
+    ]
+    assert any(
+        "Malformed nodes where found during reading, search using / t:Corrupted_t" in args[-1]
+        for args in dialogs
+    )
+    window.close()
+
+
+def test_full_load_materialises_user_defined_descendants(tmp_path, qapp):
+    filename = tmp_path / "full-udd.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    base = Node("Base", "CGNSBase_t")
+    metadata = Node("Metadata", "UserDefinedData_t")
+    nested = Node("Nested", "UserDefinedData_t")
+    payload = Node("Payload", "DataArray_t")
+    payload.set_data(np.arange(5, dtype=np.float64))
+    nested.add_child(payload)
+    metadata.add_child(nested)
+    for index in range(180):
+        extra = Node(f"Extra{index}", "UserDefinedData_t")
+        extra_payload = Node("Value", "DataArray_t")
+        extra_payload.set_data(np.array([index], dtype=np.float64))
+        extra.add_child(extra_payload)
+        metadata.add_child(extra)
+    base.add_child(metadata)
+    root.add_child(base)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)], full_load=True)
+    loaded = window.current_document().root.get_at_path("Base/Metadata/Nested/Payload")
+    assert loaded.data_is_loaded()
+    assert loaded.numpy().tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+    window.current_document().dirty = False
+    window.close()
+
+
+def test_search_selects_all_matches_and_f3_only_moves_focus(tmp_path, qapp, monkeypatch):
+    filename = tmp_path / "search-selection.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    base = Node("Base", "CGNSBase_t")
+    for index in range(3):
+        base.add_child(Node(f"Zone{index}", "Zone_t"))
+    root.add_child(base)
+    root.write(str(filename))
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog,
+        "getText",
+        staticmethod(lambda *args, **kwargs: ("/ t:Zone_t", True)),
+    )
+    window = MainWindow([str(filename)])
+    window.search_nodes()
+    tree = window.current_view().tree
+    assert [node.name() for node in tree.selected_nodes()] == ["Zone0", "Zone1", "Zone2"]
+    window.navigate_search(1)
+    assert [node.name() for node in tree.selected_nodes()] == ["Zone0", "Zone1", "Zone2"]
+    assert tree.model().node(tree.currentIndex()).name() == "Zone1"
+    window.current_document().dirty = False
+    window.close()
+
+
+def test_paste_keeps_duplicate_names_by_suffixing(tmp_path, qapp):
+    filename = tmp_path / "paste-suffix.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    target = Node("Target", "UserDefinedData_t")
+    target.add_child(Node("Child", "DataArray_t"))
+    source = Node("Source", "UserDefinedData_t")
+    source.add_child(Node("Child", "DataArray_t"))
+    root.add_child(target)
+    root.add_child(source)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    tree = window.current_view().tree
+    root_index = tree.model().index(0, 0)
+    source_index = tree.model().index(1, 0, root_index)
+    target_index = tree.model().index(0, 0, root_index)
+    tree.model().fetchMore(source_index)
+    source_child_index = tree.model().index(0, 0, source_index)
+    selection = tree.selectionModel()
+    selection.select(
+        source_child_index,
+        QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+        QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+    window.copy_nodes()
+    selection.clearSelection()
+    selection.select(
+        target_index,
+        QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+        QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+    window.paste_nodes()
+    target_node = window.current_document().root.get_at_path("Target")
+    assert [child.name() for child in target_node.children()] == ["Child", "Child.0"]
+    window.current_document().dirty = False
+    window.close()
+
+
+def test_save_node_targets_only_the_edited_payload(tmp_path, qapp):
+    filename = tmp_path / "save-node.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    payload = Node("Value", "DataArray_t")
+    payload.set_data(np.array([1.0, 2.0]))
+    root.add_child(payload)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    node = window.current_document().root.get_at_path("Value")
+    window.show_node(node)
+    window.payload_table.item(0, 0).setText("9.5")
+    window.save_current_node()
+    saved = noder_io.read(str(filename)).get_at_path("Value")
+    assert saved.numpy().tolist() == [9.5, 2.0]
+    assert not window.current_document().dirty
+    assert not hasattr(window, "name_edit")
+    assert window.action_close_tab.shortcut().toString() == "Ctrl+W"
+    window.close()
 
 
 def test_structural_delete_preserves_unloaded_lazy_siblings(tmp_path, qapp):
@@ -160,7 +313,7 @@ def test_model_columns_icons_and_payload_marker(qapp):
     assert [model.headerData(i, QtCore.Qt.Orientation.Horizontal) for i in range(3)] == [
         "Name", "Type", "Payload summary"
     ]
-    assert model.data(data_index.siblingAtColumn(2)) == "min=0, max=11, mean=5.5, median=5.5"
+    assert model.data(data_index.siblingAtColumn(2)) == "mn=0 MX=11 avg=5.5 med=5.5"
     icons = [model.data(index, QtCore.Qt.ItemDataRole.DecorationRole).cacheKey()
              for index in (root_index, base_index, zone_index)]
     assert len(set(icons)) == 3
@@ -201,4 +354,22 @@ def test_lazy_payload_marker_does_not_load_data(tmp_path, qapp):
     assert not node.data_is_loaded()
     assert document.model.data(data_index.siblingAtColumn(2)) == UNLOADED_MARKER
     assert not node.data_is_loaded()
+    document.close()
+
+
+def test_lazy_payload_can_be_unloaded_and_reloaded(tmp_path, qapp):
+    filename = tmp_path / "lazy-unload.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    payload = Node("Density", "DataArray_t")
+    payload.set_data(np.arange(4, dtype=np.float64))
+    root.add_child(payload)
+    root.write(str(filename))
+
+    document = TreeDocument(str(filename), parent=qapp)
+    node = document.root.get_at_path("Density")
+    assert not node.data_is_loaded()
+    assert node.numpy().tolist() == [0.0, 1.0, 2.0, 3.0]
+    node.unload_data()
+    assert not node.data_is_loaded()
+    assert node.numpy().tolist() == [0.0, 1.0, 2.0, 3.0]
     document.close()

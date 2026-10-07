@@ -35,6 +35,8 @@ def _node_icon(node) -> QtGui.QIcon:
     name = node.name()
     if node_type == "Root Node of HDF5 File":
         return _icon("fugue-icons-3.5.6/tree-red.png")
+    if node_type == "Corrupted_t":
+        return _icon("fugue-icons-3.5.6/tree-red.png")
     if node.parent() is None or node_type == "CGNSTree_t":
         return _icon("fugue-icons-3.5.6/tree.png")
     if node_type == "CGNSBase_t":
@@ -117,6 +119,24 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
     def node(self, index: QtCore.QModelIndex):
         """Return the noder node represented by a Qt index."""
         return self._node(index)
+
+    def index_for_node(self, node, column: int = 0) -> QtCore.QModelIndex:
+        """Return an index for a node, loading only its ancestor metadata."""
+        if node is None:
+            return QtCore.QModelIndex()
+        try:
+            if node.root() is not self.root:
+                return QtCore.QModelIndex()
+        except Exception:
+            return QtCore.QModelIndex()
+        if node is not self.root:
+            parent = node.parent()
+            if parent is None:
+                return QtCore.QModelIndex()
+            parent.ensure_children_loaded()
+            if node not in self._visible_loaded_children(parent):
+                return QtCore.QModelIndex()
+        return self._index_of(node, column)
 
     def _visible_loaded_children(self, node) -> list:
         return _node_children(node, loaded_only=True)
@@ -378,7 +398,11 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
                 node = source if is_move else source.copy(deep=True)
                 if is_move:
                     node.detach()
-                node.attach_to(target, position=row if row >= 0 else -1)
+                node.attach_to(
+                    target,
+                    position=row if row >= 0 else -1,
+                    override_sibling_by_name=False,
+                )
                 if row >= 0:
                     row += 1
         finally:

@@ -17,10 +17,18 @@ class TreeDocument(QtCore.QObject):
 
     changed = QtCore.Signal()
 
-    def __init__(self, filename: str | None = None, *, read_only: bool = False, parent=None):
+    def __init__(
+        self,
+        filename: str | None = None,
+        *,
+        read_only: bool = False,
+        safe_mode: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.filename = str(filename) if filename else None
         self.read_only = read_only
+        self.safe_mode = safe_mode
         self.reader = None
         self.root = None
         self.model = None
@@ -34,7 +42,7 @@ class TreeDocument(QtCore.QObject):
             self.model = NoderTreeModel(self.root, read_only=read_only, parent=self)
 
     def _load_file(self, filename: str) -> None:
-        self.reader = noder_io.LazyHdf5Reader(filename)
+        self.reader = noder_io.LazyHdf5Reader(filename, safe_mode=self.safe_mode)
         self.root = self.reader.root()
         # CGNS/HDF5 has very few root-level children in normal files.  Load
         # only their metadata so the initial view contains bases, never zones.
@@ -49,6 +57,10 @@ class TreeDocument(QtCore.QObject):
     @property
     def title(self) -> str:
         return Path(self.filename).name if self.filename else "Untitled"
+
+    @property
+    def has_read_warnings(self) -> bool:
+        return bool(self.reader is not None and self.reader.has_warnings())
 
     def mark_changed(self, *, full: bool, node=None) -> None:
         self.dirty = True
@@ -81,6 +93,22 @@ class TreeDocument(QtCore.QObject):
         self.dirty = False
         self.requires_full_write = False
         self._payload_dirty.clear()
+        self.changed.emit()
+
+    def save_node_only(self, node) -> None:
+        """Persist one edited node without rewriting the complete tree."""
+        if self.read_only:
+            raise PermissionError("This tree was opened read-only")
+        if not self.filename:
+            raise ValueError("Save Node requires a file-backed document")
+        if self.requires_full_write:
+            raise RuntimeError(
+                "Save Node is unavailable after structural edits; use Save for the complete tree"
+            )
+        node.save_this_node_only(self.filename)
+        self._payload_dirty.pop(id(node), None)
+        if not self._payload_dirty:
+            self.dirty = False
         self.changed.emit()
 
     def _write_full_file(self) -> None:

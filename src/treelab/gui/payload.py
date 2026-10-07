@@ -42,13 +42,17 @@ def _string_marker(value: str) -> str:
 
 
 def _number(value) -> str:
-    """Approximate C++ ``setprecision(15)`` output used by cgnsviz."""
+    """Match cgnsviz's compact six-significant-digit numeric formatting."""
+    if isinstance(value, (bool, np.bool_)):
+        return "1" if value else "0"
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
     value = float(value)
     if math.isnan(value):
         return "nan"
     if math.isinf(value):
         return "-inf" if value < 0 else "inf"
-    return format(value, ".15g")
+    return format(value, ".6g")
 
 
 def _numerical_summary(array: np.ndarray) -> str:
@@ -56,14 +60,14 @@ def _numerical_summary(array: np.ndarray) -> str:
         return "empty array"
     values = np.asarray(array).reshape(-1)
     if np.issubdtype(values.dtype, np.floating) and np.isnan(values).any():
-        return "min=nan, max=nan, mean=nan, median=nan"
+        return "mn=nan MX=nan avg=nan med=nan"
     # The C++ implementation sorts before selecting min/max/median.  This is
     # deliberately done on a bounded copy only after the payload is loaded.
     sorted_values = np.sort(values)
     median = np.median(sorted_values)
     return (
-        f"min={_number(sorted_values[0])}, max={_number(sorted_values[-1])}, "
-        f"mean={_number(np.mean(values))}, median={_number(median)}"
+        f"mn={_number(sorted_values[0])} MX={_number(sorted_values[-1])} "
+        f"avg={_number(np.mean(values))} med={_number(median)}"
     )
 
 

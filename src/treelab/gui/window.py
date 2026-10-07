@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+from noder.core import Node
+import noder.core.io as noder_io
 
 from .document import TreeDocument
 from .payload import (
@@ -17,8 +19,12 @@ from .payload import (
 
 
 GUI_PATH = Path(__file__).resolve().parent
-TREE_ICON = GUI_PATH / "icons" / "fugue-icons-3.5.6" / "tree.png"
 MOLA_ICON = GUI_PATH / "icons" / "OwnIcons" / "mola_v2_only_logo.svg"
+ICON_DIR = GUI_PATH / "icons"
+
+
+def _icon(relative_path: str) -> QtGui.QIcon:
+    return QtGui.QIcon(str(ICON_DIR / relative_path))
 
 
 class TreeView(QtWidgets.QTreeView):
@@ -43,6 +49,67 @@ class TreeView(QtWidgets.QTreeView):
         header.resizeSection(0, 360)
         header.resizeSection(1, 130)
         header.resizeSection(2, 300)
+        self._view_state = ([], [])
+        document.model.modelAboutToBeReset.connect(self._capture_view_state)
+        document.model.modelReset.connect(self._restore_view_state)
+
+    def _capture_view_state(self) -> None:
+        expanded = []
+        selected = self.selected_nodes()
+
+        def visit(parent_index):
+            for row in range(self.model().rowCount(parent_index)):
+                index = self.model().index(row, 0, parent_index)
+                node = self.model().node(index)
+                if node is None:
+                    continue
+                if self.isExpanded(index):
+                    expanded.append((node, node.path()))
+                visit(index)
+
+        visit(QtCore.QModelIndex())
+        self._view_state = (expanded, [(node, node.path()) for node in selected])
+
+    def _resolve_path(self, path: str):
+        root = self.document.root
+        parts = [part for part in path.split("/") if part]
+        if parts and parts[0] == root.name():
+            parts = parts[1:]
+        node = root
+        for part in parts:
+            node.ensure_children_loaded()
+            node = next((child for child in node.loaded_children() if child.name() == part), None)
+            if node is None:
+                return None
+        return node
+
+    def _restore_view_state(self) -> None:
+        if not self._view_state:
+            return
+        expanded, selected = self._view_state
+        for old_node, path in expanded:
+            node = old_node if old_node is not None else None
+            if node is None or self.document.model.index_for_node(node).isValid() is False:
+                node = self._resolve_path(path)
+            index = self.document.model.index_for_node(node)
+            if index.isValid():
+                self.expand(index)
+        selection_model = self.selectionModel()
+        selection_model.clearSelection()
+        first = True
+        for old_node, path in selected:
+            node = old_node
+            index = self.document.model.index_for_node(node)
+            if not index.isValid():
+                node = self._resolve_path(path)
+                index = self.document.model.index_for_node(node)
+            if not index.isValid():
+                continue
+            flags = QtCore.QItemSelectionModel.SelectionFlag.Select
+            if first:
+                flags |= QtCore.QItemSelectionModel.SelectionFlag.Clear
+                first = False
+            selection_model.select(index, flags)
 
     def selected_nodes(self) -> list:
         nodes = []
@@ -75,12 +142,26 @@ class DocumentView(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     """Main tabbed editor, intentionally independent of the old treelab API."""
 
-    def __init__(self, filenames=(), *, read_only: bool = False, parent=None):
+    def __init__(
+        self,
+        filenames=(),
+        *,
+        read_only: bool = False,
+        full_load: bool = False,
+        safe_mode: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.read_only = read_only
+        self.full_load = full_load
+        self.safe_mode = safe_mode
+        self._safe_warning_documents = set()
         self.documents: list[TreeDocument] = []
         self.views: list[DocumentView] = []
         self.clipboard_nodes: list = []
+        self.search_expression = ""
+        self.search_results: list = []
+        self.search_index = -1
         self.setWindowTitle("TreeLab")
         if MOLA_ICON.exists():
             self.setWindowIcon(QtGui.QIcon(str(MOLA_ICON)))
@@ -107,25 +188,41 @@ class MainWindow(QtWidgets.QMainWindow):
         edit_menu = self.menuBar().addMenu("Edit")
         view_menu = self.menuBar().addMenu("View")
 
-        self.action_open = QtGui.QAction("Open…", self)
+        def help_text(action, text: str, shortcut: str | None = None) -> None:
+            description = f"{text} ({shortcut})" if shortcut else text
+            action.setToolTip(description)
+            action.setStatusTip(description)
+
+        self.action_open = QtGui.QAction(_icon("fugue-icons-3.5.6/folder-horizontal-open.png"), "Open…", self)
         self.action_open.setShortcut(QtGui.QKeySequence.StandardKey.Open)
         self.action_open.triggered.connect(self.open_dialog)
+        help_text(self.action_open, "Open", "Ctrl+O")
         file_menu.addAction(self.action_open)
 
-        self.action_new = QtGui.QAction("New", self)
-        self.action_new.setShortcut(QtGui.QKeySequence.StandardKey.New)
+        self.action_new = QtGui.QAction(_icon("fugue-icons-3.5.6/plus.png"), "New document", self)
+        self.action_new.setShortcut(QtGui.QKeySequence("Ctrl+Shift+N"))
         self.action_new.triggered.connect(self.new_document)
+        help_text(self.action_new, "New document", "Ctrl+Shift+N")
         file_menu.addAction(self.action_new)
 
-        self.action_save = QtGui.QAction("Save", self)
+        self.action_save = QtGui.QAction(_icon("fugue-icons-3.5.6/disk.png"), "Save", self)
         self.action_save.setShortcut(QtGui.QKeySequence.StandardKey.Save)
         self.action_save.triggered.connect(self.save_current)
+        help_text(self.action_save, "Save", "Ctrl+S")
         file_menu.addAction(self.action_save)
 
-        self.action_save_as = QtGui.QAction("Save As…", self)
+        self.action_save_as = QtGui.QAction(_icon("fugue-icons-3.5.6/disk--plus.png"), "Save As…", self)
         self.action_save_as.setShortcut(QtGui.QKeySequence("Ctrl+Shift+S"))
         self.action_save_as.triggered.connect(self.save_as_current)
+        help_text(self.action_save_as, "Save As", "Ctrl+Shift+S")
         file_menu.addAction(self.action_save_as)
+
+        file_menu.addSeparator()
+        self.action_close_tab = QtGui.QAction("Close current tab", self)
+        self.action_close_tab.setShortcut(QtGui.QKeySequence("Ctrl+W"))
+        self.action_close_tab.triggered.connect(self.close_current_tab)
+        help_text(self.action_close_tab, "Close current tab", "Ctrl+W")
+        file_menu.addAction(self.action_close_tab)
 
         file_menu.addSeparator()
         action_quit = QtGui.QAction("Quit", self)
@@ -133,41 +230,142 @@ class MainWindow(QtWidgets.QMainWindow):
         action_quit.triggered.connect(self.close)
         file_menu.addAction(action_quit)
 
-        self.action_copy = QtGui.QAction("Copy node(s)", self)
+        self.action_new_node = QtGui.QAction(_icon("fugue-icons-3.5.6/plus.png"), "New node", self)
+        self.action_new_node.setShortcut(QtGui.QKeySequence("Ctrl+N"))
+        self.action_new_node.triggered.connect(self.new_nodes)
+        help_text(self.action_new_node, "New node", "Ctrl+N")
+        edit_menu.addAction(self.action_new_node)
+
+        self.action_cut = QtGui.QAction(_icon("fugue-icons-3.5.6/scissors-blue.png"), "Cut node(s)", self)
+        self.action_cut.setShortcut(QtGui.QKeySequence.StandardKey.Cut)
+        self.action_cut.triggered.connect(self.cut_nodes)
+        help_text(self.action_cut, "Cut node(s)", "Ctrl+X")
+        edit_menu.addAction(self.action_cut)
+
+        self.action_copy = QtGui.QAction(_icon("fugue-icons-3.5.6/blue-document-copy.png"), "Copy node(s)", self)
         self.action_copy.setShortcut(QtGui.QKeySequence.StandardKey.Copy)
         self.action_copy.triggered.connect(self.copy_nodes)
+        help_text(self.action_copy, "Copy node(s)", "Ctrl+C")
         edit_menu.addAction(self.action_copy)
 
-        self.action_paste = QtGui.QAction("Paste node(s)", self)
+        self.action_paste = QtGui.QAction(_icon("fugue-icons-3.5.6/clipboard-paste.png"), "Paste node(s)", self)
         self.action_paste.setShortcut(QtGui.QKeySequence.StandardKey.Paste)
         self.action_paste.triggered.connect(self.paste_nodes)
+        help_text(self.action_paste, "Paste node(s)", "Ctrl+V")
         edit_menu.addAction(self.action_paste)
 
-        self.action_delete = QtGui.QAction("Delete node(s)", self)
+        self.action_delete = QtGui.QAction(_icon("fugue-icons-3.5.6/cross.png"), "Delete node(s)", self)
         self.action_delete.setShortcut(QtGui.QKeySequence.StandardKey.Delete)
         self.action_delete.triggered.connect(self.delete_nodes)
+        help_text(self.action_delete, "Delete node(s)", "Del")
         edit_menu.addAction(self.action_delete)
 
-        self.action_plot = QtGui.QAction("Plot selected data", self)
+        self.action_swap = QtGui.QAction(_icon("fugue-icons-3.5.6/arrow-switch.png"), "Swap nodes", self)
+        self.action_swap.triggered.connect(self.swap_nodes)
+        help_text(self.action_swap, "Swap nodes")
+        edit_menu.addAction(self.action_swap)
+
+        self.action_search = QtGui.QAction(_icon("fugue-icons-3.5.6/node-magnifier.png"), "Search…", self)
+        self.action_search.setShortcut(QtGui.QKeySequence("Ctrl+F"))
+        self.action_search.triggered.connect(self.search_nodes)
+        help_text(self.action_search, "Search", "Ctrl+F")
+        view_menu.addAction(self.action_search)
+
+        self.action_plot = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Plot selected data", self)
         self.action_plot.triggered.connect(self.plot_selected)
+        help_text(self.action_plot, "Plot selected data")
         view_menu.addAction(self.action_plot)
 
-        self.action_load_payload = QtGui.QAction("Load data (F5)", self)
+        self.action_search_next = QtGui.QAction("Next search match (F3)", self)
+        self.action_search_next.setShortcut(QtGui.QKeySequence("F3"))
+        self.action_search_next.triggered.connect(lambda: self.navigate_search(1))
+        view_menu.addAction(self.action_search_next)
+
+        self.action_search_previous = QtGui.QAction("Previous search match (Shift+F3)", self)
+        self.action_search_previous.setShortcut(QtGui.QKeySequence("Shift+F3"))
+        self.action_search_previous.triggered.connect(lambda: self.navigate_search(-1))
+        view_menu.addAction(self.action_search_previous)
+
+        self.action_load_payload = QtGui.QAction(_icon("fugue-icons-3.5.6/disk--arrow.png"), "Load data (F5)", self)
         self.action_load_payload.setShortcut(QtGui.QKeySequence("F5"))
-        self.action_load_payload.triggered.connect(self.load_selected_data)
+        self.action_load_payload.triggered.connect(self.load_current_data)
+        help_text(self.action_load_payload, "Load data", "F5")
         view_menu.addAction(self.action_load_payload)
 
-        toolbar = self.addToolBar("Tree")
-        toolbar.setMovable(False)
+        self.action_load_payload_recursive = QtGui.QAction("Load descendants (Shift+F5)", self)
+        self.action_load_payload_recursive.setShortcut(QtGui.QKeySequence("Shift+F5"))
+        self.action_load_payload_recursive.triggered.connect(self.load_recursive_data)
+        help_text(self.action_load_payload_recursive, "Load descendants", "Shift+F5")
+        view_menu.addAction(self.action_load_payload_recursive)
+
+        self.action_unload_payload = QtGui.QAction(_icon("fugue-icons-3.5.6/arrow-circle.png"), "Unload data (F6)", self)
+        self.action_unload_payload.setShortcut(QtGui.QKeySequence("F6"))
+        self.action_unload_payload.triggered.connect(self.unload_current_data)
+        help_text(self.action_unload_payload, "Unload data", "F6")
+        view_menu.addAction(self.action_unload_payload)
+
+        self.action_unload_payload_recursive = QtGui.QAction("Unload descendants (Shift+F6)", self)
+        self.action_unload_payload_recursive.setShortcut(QtGui.QKeySequence("Shift+F6"))
+        self.action_unload_payload_recursive.triggered.connect(self.unload_recursive_data)
+        help_text(self.action_unload_payload_recursive, "Unload descendants", "Shift+F6")
+        view_menu.addAction(self.action_unload_payload_recursive)
+
+        self.action_read_link = QtGui.QAction(_icon("fugue-icons-3.5.6/external.png"), "Read link (F7)", self)
+        self.action_read_link.setShortcut(QtGui.QKeySequence("F7"))
+        self.action_read_link.triggered.connect(self.read_current_links)
+        help_text(self.action_read_link, "Read link", "F7")
+        view_menu.addAction(self.action_read_link)
+
+        self.action_read_link_recursive = QtGui.QAction("Read links recursively (Shift+F7)", self)
+        self.action_read_link_recursive.setShortcut(QtGui.QKeySequence("Shift+F7"))
+        self.action_read_link_recursive.triggered.connect(self.read_recursive_links)
+        help_text(self.action_read_link_recursive, "Read links recursively", "Shift+F7")
+        view_menu.addAction(self.action_read_link_recursive)
+
+        self.action_previous_tab = QtGui.QAction("Previous tab", self)
+        self.action_previous_tab.setShortcut(QtGui.QKeySequence("Ctrl+PgUp"))
+        self.action_previous_tab.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+        self.action_previous_tab.triggered.connect(lambda: self._switch_tab(-1))
+        help_text(self.action_previous_tab, "Previous tab", "Ctrl+PgUp")
+        view_menu.addAction(self.action_previous_tab)
+
+        self.action_next_tab = QtGui.QAction("Next tab", self)
+        self.action_next_tab.setShortcut(QtGui.QKeySequence("Ctrl+PgDown"))
+        self.action_next_tab.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+        self.action_next_tab.triggered.connect(lambda: self._switch_tab(1))
+        help_text(self.action_next_tab, "Next tab", "Ctrl+PgDown")
+        view_menu.addAction(self.action_next_tab)
+
+        toolbar = QtWidgets.QToolBar("Tree tools", self)
+        toolbar.setObjectName("treeToolsToolbar")
+        toolbar.setMovable(True)
+        toolbar.setFloatable(True)
+        toolbar.setAllowedAreas(QtCore.Qt.ToolBarArea.AllToolBarAreas)
+        toolbar.setIconSize(QtCore.QSize(24, 24))
+        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(QtCore.Qt.ToolBarArea.LeftToolBarArea, toolbar)
         toolbar.addAction(self.action_open)
+        toolbar.addAction(self.action_new)
         toolbar.addAction(self.action_save)
+        toolbar.addAction(self.action_save_as)
+        toolbar.addAction(self.action_new_node)
+        toolbar.addAction(self.action_delete)
+        toolbar.addAction(self.action_cut)
         toolbar.addAction(self.action_copy)
         toolbar.addAction(self.action_paste)
+        toolbar.addAction(self.action_search)
         toolbar.addAction(self.action_plot)
+        toolbar.addSeparator()
+        toolbar.addAction(self.action_load_payload)
+        toolbar.addAction(self.action_unload_payload)
+        toolbar.addAction(self.action_read_link)
+        toolbar.addSeparator()
+        toolbar.addAction(self.action_swap)
 
         if self.read_only:
-            for action in (self.action_new, self.action_save, self.action_save_as,
-                           self.action_paste, self.action_delete):
+            for action in (self.action_new, self.action_new_node, self.action_save, self.action_save_as,
+                           self.action_cut, self.action_paste, self.action_delete, self.action_swap,
+                           self.action_read_link, self.action_read_link_recursive):
                 action.setEnabled(False)
 
     def _make_property_dock(self) -> None:
@@ -176,16 +374,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         panel = QtWidgets.QWidget(self.dock)
         form = QtWidgets.QFormLayout(panel)
-        self.name_edit = QtWidgets.QLineEdit(panel)
-        self.type_edit = QtWidgets.QLineEdit(panel)
-        self.value_edit = QtWidgets.QPlainTextEdit(panel)
-        self.value_edit.setPlaceholderText("Replacement value (optional)")
         self.payload_info = QtWidgets.QLabel(panel)
         self.payload_info.setWordWrap(True)
         self.payload_table = QtWidgets.QTableWidget(panel)
-        self.payload_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.payload_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked |
+            QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed
+        )
         self.payload_table.setAlternatingRowColors(True)
         self.payload_table.setMinimumHeight(180)
+        self.payload_table.itemChanged.connect(self._payload_item_changed)
+        self.payload_mode_spaces = QtWidgets.QRadioButton("Split using spaces", panel)
+        self.payload_mode_axis = QtWidgets.QRadioButton("Split using axis", panel)
+        self.payload_mode_raw = QtWidgets.QRadioButton("Raw", panel)
+        self.payload_mode_spaces.setChecked(True)
+        mode_group = QtWidgets.QButtonGroup(panel)
+        mode_group.addButton(self.payload_mode_spaces)
+        mode_group.addButton(self.payload_mode_axis)
+        mode_group.addButton(self.payload_mode_raw)
+        mode_controls = QtWidgets.QWidget(panel)
+        mode_layout = QtWidgets.QHBoxLayout(mode_controls)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        for button in (self.payload_mode_spaces, self.payload_mode_axis, self.payload_mode_raw):
+            mode_layout.addWidget(button)
+            button.toggled.connect(self._refresh_payload_table)
         self.payload_axis = QtWidgets.QComboBox(panel)
         self.payload_axis.addItems(["axis 0", "axis 1", "axis 2"])
         self.payload_slice = QtWidgets.QSpinBox(panel)
@@ -195,30 +407,28 @@ class MainWindow(QtWidgets.QMainWindow):
         slice_layout.setContentsMargins(0, 0, 0, 0)
         slice_layout.addWidget(self.payload_axis)
         slice_layout.addWidget(self.payload_slice)
-        self.apply_button = QtWidgets.QPushButton("Apply", panel)
+        self.save_node_button = QtWidgets.QPushButton("Save Node", panel)
         self.plot_button = QtWidgets.QPushButton("Plot", panel)
-        form.addRow("Name", self.name_edit)
-        form.addRow("Type", self.type_edit)
         form.addRow("Payload", self.payload_info)
+        form.addRow("String view", mode_controls)
         form.addRow(self.payload_table)
         form.addRow("Slice", slice_controls)
-        form.addRow("Replacement", self.value_edit)
         buttons = QtWidgets.QHBoxLayout()
-        buttons.addWidget(self.apply_button)
+        buttons.addWidget(self.save_node_button)
         buttons.addWidget(self.plot_button)
         form.addRow(buttons)
         self.dock.setWidget(panel)
-        self.apply_button.clicked.connect(self.apply_node_edits)
+        self.save_node_button.clicked.connect(self.save_current_node)
         self.plot_button.clicked.connect(self.plot_selected)
         self.payload_axis.currentIndexChanged.connect(self._refresh_payload_table)
         self.payload_slice.valueChanged.connect(self._refresh_payload_table)
         self._selected_node = None
         self._refresh_payload_table()
         if self.read_only:
-            self.name_edit.setReadOnly(True)
-            self.type_edit.setReadOnly(True)
-            self.value_edit.setReadOnly(True)
-            self.apply_button.setEnabled(False)
+            self.payload_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+            self.save_node_button.setEnabled(False)
+        else:
+            self._update_save_node_state()
 
     def current_view(self) -> DocumentView | None:
         index = self.tabs.currentIndex()
@@ -229,7 +439,11 @@ class MainWindow(QtWidgets.QMainWindow):
         return view.document if view else None
 
     def new_document(self) -> None:
-        document = TreeDocument(read_only=self.read_only, parent=self)
+        document = TreeDocument(
+            read_only=self.read_only,
+            safe_mode=self.safe_mode,
+            parent=self,
+        )
         self._add_document(document)
 
     def open_dialog(self) -> None:
@@ -240,12 +454,26 @@ class MainWindow(QtWidgets.QMainWindow):
             self.open_file(filename)
 
     def open_file(self, filename: str) -> None:
+        progress = self._progress("Opening tree", f"Opening {Path(filename).name}…")
         try:
-            document = TreeDocument(filename, read_only=self.read_only, parent=self)
+            document = TreeDocument(
+                filename,
+                read_only=self.read_only,
+                safe_mode=self.safe_mode,
+                parent=self,
+            )
+            QtWidgets.QApplication.processEvents()
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Open failed", str(error))
+            progress.close()
             return
-        self._add_document(document)
+        try:
+            self._add_document(document)
+            if self.full_load:
+                self._run_payload_operation([document.root], recursive=True, operation="load")
+            self._show_safe_mode_warning(document)
+        finally:
+            progress.close()
 
     def _add_document(self, document: TreeDocument) -> None:
         view = DocumentView(document, self)
@@ -257,6 +485,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.setCurrentWidget(view)
         root_index = document.model.index(0, 0)
         self._expand_root_and_bases(view, root_index)
+        selection_model = view.tree.selectionModel()
+        selection_model.select(
+            root_index,
+            QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+            QtCore.QItemSelectionModel.SelectionFlag.Rows,
+        )
+        view.tree.selectionModel().setCurrentIndex(
+            root_index, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate
+        )
+        view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+
+    def _show_safe_mode_warning(self, document: TreeDocument) -> None:
+        if not self.safe_mode or not document.has_read_warnings:
+            return
+        marker = id(document)
+        if marker in self._safe_warning_documents:
+            return
+        self._safe_warning_documents.add(marker)
+        QtWidgets.QMessageBox.warning(
+            self,
+            "Malformed nodes found",
+            "Malformed nodes where found during reading, search using / t:Corrupted_t",
+        )
 
     def _expand_root_and_bases(self, view: DocumentView, root_index) -> None:
         view.tree.expand(root_index)
@@ -284,6 +535,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.documents:
             self.new_document()
 
+    def close_current_tab(self) -> None:
+        index = self.tabs.currentIndex()
+        if index >= 0:
+            self.close_tab(index)
+
     def _current_nodes(self) -> list:
         view = self.current_view()
         return view.tree.selected_nodes() if view else []
@@ -292,24 +548,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._selected_node = node
         if node is None:
             self.dock.setWindowTitle("Node")
-            self.name_edit.clear()
-            self.type_edit.clear()
-            self.value_edit.clear()
             self.payload_info.clear()
+            self._update_save_node_state()
             self._refresh_payload_table()
             return
         self.dock.setWindowTitle(node.path())
-        self.name_edit.setText(node.name())
-        self.type_edit.setText(node.type())
+        self._update_save_node_state()
         try:
             if not node.has_data():
-                self.value_edit.setPlainText("")
-            elif getattr(node, "data_is_loaded", lambda: True)():
-                self.value_edit.setPlainText(_format_value(node.numpy()))
-            else:
-                self.value_edit.clear()
+                self.payload_info.setText("No payload")
+            elif not getattr(node, "data_is_loaded", lambda: True)():
+                self.payload_info.setText(UNLOADED_MARKER)
         except Exception as error:
-            self.value_edit.clear()
             self.payload_info.setText(f"Payload unavailable: {error}")
         self._refresh_payload_table()
 
@@ -317,9 +567,11 @@ class MainWindow(QtWidgets.QMainWindow):
         table = getattr(self, "payload_table", None)
         if table is None:
             return
+        self._updating_table = True
         table.clear()
         table.setRowCount(0)
         table.setColumnCount(0)
+        self._updating_table = False
         node = self._selected_node
         if node is None:
             self.payload_info.setText("Select a node to inspect its payload.")
@@ -332,6 +584,12 @@ class MainWindow(QtWidgets.QMainWindow):
             if not getattr(node, "data_is_loaded", lambda: True)():
                 self.payload_info.setText(UNLOADED_MARKER)
                 self._set_table_values([[UNLOADED_MARKER]])
+                return
+            data = node.data()
+            if data is not None and data.hasString():
+                values, label = self._string_payload_view(node, data)
+                self.payload_info.setText(f"string shape={data.shape()}{label}")
+                self._set_table_values(values)
                 return
             array = payload_array(node)
             if array is None or array.size == 0:
@@ -351,6 +609,27 @@ class MainWindow(QtWidgets.QMainWindow):
             self.payload_info.setText(f"Payload unavailable: {error}")
             self._set_table_values([["Payload unavailable"]])
 
+    def _string_payload_view(self, node, data) -> tuple[list[list[str]], str]:
+        if self.payload_mode_raw.isChecked():
+            return [[data.extractString()]], ", raw"
+        if self.payload_mode_spaces.isChecked():
+            try:
+                interpreted = node.interpret_data("spaces")
+                if isinstance(interpreted, (list, tuple)):
+                    return [[_table_value(value)] for value in interpreted], ", split using spaces"
+            except Exception:
+                pass
+            return [[word] for word in data.extractString().split()], ", split using spaces"
+        array = np.asarray(data.getPyArray())
+        if array.ndim == 0:
+            return [[_table_value(array.item())]], ", split using axis"
+        if array.ndim == 1:
+            return [[_table_value(value)] for value in array], ", split using axis"
+        if array.ndim == 2:
+            return [[_table_value(value) for value in row] for row in array], ", split using axis"
+        flattened = array.reshape(array.shape[0], -1)
+        return [[_table_value(value) for value in row] for row in flattened], ", split using axis"
+
     def _payload_view(self, array: np.ndarray) -> tuple[list[list[str]], str]:
         array = np.asarray(array)
         if array.ndim == 0:
@@ -362,7 +641,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if array.ndim == 3:
             axis = min(self.payload_axis.currentIndex(), 2)
             maximum = array.shape[axis] - 1
+            blocker = QtCore.QSignalBlocker(self.payload_slice)
             self.payload_slice.setMaximum(maximum)
+            del blocker
             slice_index = min(self.payload_slice.value(), maximum)
             plane = np.take(array, slice_index, axis=axis)
             if plane.ndim == 2:
@@ -376,63 +657,343 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_table_values(self, values: list[list[str]]) -> None:
         rows = len(values)
         columns = max((len(row) for row in values), default=1)
-        self.payload_table.setRowCount(rows)
-        self.payload_table.setColumnCount(columns)
-        for row_index, row in enumerate(values):
-            for column_index, value in enumerate(row):
-                self.payload_table.setItem(row_index, column_index, QtWidgets.QTableWidgetItem(str(value)))
-        self.payload_table.resizeColumnsToContents()
-        self.payload_table.resizeRowsToContents()
+        previous = getattr(self, "_updating_table", False)
+        self._updating_table = True
+        try:
+            self.payload_table.setRowCount(rows)
+            self.payload_table.setColumnCount(columns)
+            for row_index, row in enumerate(values):
+                for column_index, value in enumerate(row):
+                    self.payload_table.setItem(row_index, column_index, QtWidgets.QTableWidgetItem(str(value)))
+            self.payload_table.resizeColumnsToContents()
+            self.payload_table.resizeRowsToContents()
+        finally:
+            self._updating_table = previous
 
-    def load_selected_data(self) -> None:
-        nodes = self._current_nodes()
+    def _payload_item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
+        if getattr(self, "_updating_table", False) or self.read_only:
+            return
+        node = self._selected_node
+        document = self.current_document()
+        if node is None or document is None or not node.has_data():
+            return
+        try:
+            data = node.data()
+            text = item.text()
+            if data.hasString():
+                if self.payload_mode_raw.isChecked():
+                    document.edit_node_data(node, text)
+                elif self.payload_mode_spaces.isChecked():
+                    words = [self.payload_table.item(row, 0).text()
+                             for row in range(self.payload_table.rowCount())]
+                    document.edit_node_data(node, " ".join(words))
+                else:
+                    array = np.asarray(data.getPyArray())
+                    array[item.row(), item.column()] = np.asarray(text, dtype=array.dtype)
+                    document.mark_changed(full=False, node=node)
+            else:
+                array = np.asarray(data.getPyArray())
+                parsed = ast.literal_eval(text)
+                value = np.asarray(parsed, dtype=array.dtype).item()
+                if array.ndim == 0:
+                    array[...] = value
+                elif array.ndim == 1:
+                    array[item.row()] = value
+                elif array.ndim == 2:
+                    array[item.row(), item.column()] = value
+                elif array.ndim == 3:
+                    axis = min(self.payload_axis.currentIndex(), 2)
+                    index = self.payload_slice.value()
+                    if axis == 0:
+                        array[index, item.row(), item.column()] = value
+                    elif axis == 1:
+                        array[item.row(), index, item.column()] = value
+                    else:
+                        array[item.row(), item.column(), index] = value
+                else:
+                    raise ValueError("in-place editing is limited to three table dimensions")
+                document.mark_changed(full=False, node=node)
+            index = document.model.index_for_node(node)
+            if index.isValid():
+                document.model.dataChanged.emit(index, index.siblingAtColumn(2))
+            self._refresh_payload_table()
+        except (ValueError, SyntaxError, IndexError, TypeError) as error:
+            self.statusBar().showMessage(f"Value not changed: {error}")
+
+    def _progress(self, title: str, label: str) -> QtWidgets.QProgressDialog:
+        progress = QtWidgets.QProgressDialog(label, "Cancel", 0, 0, self)
+        progress.setWindowTitle(title)
+        progress.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+        progress.setAutoClose(False)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QtWidgets.QApplication.processEvents()
+        return progress
+
+    @staticmethod
+    def _walk_nodes(nodes, recursive: bool):
+        seen = set()
+
+        def visit(node):
+            # Keep the Python wrappers themselves alive.  Noder may create a
+            # temporary wrapper when returning a child; tracking ``id(node)``
+            # alone lets CPython reuse wrapper IDs and silently skips later
+            # descendants during large recursive loads.
+            if node in seen:
+                return
+            seen.add(node)
+            yield node
+            if recursive:
+                node.ensure_children_loaded()
+                # Recursive/full operations must not stop at the model's
+                # currently paged child set.  ``children()`` asks noder for
+                # the complete direct-child set, including UDD descendants.
+                for child in node.children():
+                    yield from visit(child)
+
+        for node in nodes:
+            yield from visit(node)
+
+    def _run_payload_operation(self, nodes, *, recursive: bool, operation: str) -> None:
         if not nodes:
             return
-
-        def load_subtree(node) -> None:
-            if node.has_data():
-                node.data()
-            node.ensure_children_loaded()
-            for child in node.loaded_children():
-                load_subtree(child)
-
+        progress = self._progress(
+            "Loading payload" if operation == "load" else "Unloading payload",
+            "Loading tree payload…" if operation == "load" else "Releasing tree payload…",
+        )
+        count = 0
         try:
-            for node in nodes:
-                load_subtree(node)
+            for node in self._walk_nodes(nodes, recursive):
+                if progress.wasCanceled():
+                    break
+                if operation == "load":
+                    # Calling data() is intentional even for metadata-only
+                    # nodes: noder records the payload as inspected and the
+                    # lazy backend remains responsible for deciding whether
+                    # an HDF5 dataset exists.
+                    node.data()
+                elif operation == "unload":
+                    node.unload_data()
+                count += 1
+                if count % 32 == 0:
+                    QtWidgets.QApplication.processEvents()
         except Exception as error:
-            QtWidgets.QMessageBox.warning(self, "Payload unavailable", str(error))
-            return
+            QtWidgets.QMessageBox.warning(self, "Payload operation failed", str(error))
+        finally:
+            progress.close()
         for view in self.views:
             view.document.model.layoutChanged.emit()
-        self.statusBar().showMessage(f"Loaded data for {len(nodes)} selected node(s)")
+        self.statusBar().showMessage(f"{operation.title()}ed payload for {count} node(s)")
         self.show_node(nodes[0])
 
-    def apply_node_edits(self) -> None:
+    def load_current_data(self) -> None:
+        self._run_payload_operation(self._current_nodes(), recursive=False, operation="load")
+
+    def load_recursive_data(self) -> None:
+        self._run_payload_operation(self._current_nodes(), recursive=True, operation="load")
+
+    def unload_current_data(self) -> None:
+        self._run_payload_operation(self._current_nodes(), recursive=False, operation="unload")
+
+    def unload_recursive_data(self) -> None:
+        self._run_payload_operation(self._current_nodes(), recursive=True, operation="unload")
+
+    # Kept as a small API alias for callers of the previous GUI implementation.
+    def load_selected_data(self) -> None:
+        self.load_recursive_data()
+
+    def _visible_index(self, node, view: DocumentView, document: TreeDocument):
+        if node is None or node.root() is not document.root:
+            return QtCore.QModelIndex()
+        ancestors = []
+        parent = node.parent()
+        while parent is not None:
+            ancestors.append(parent)
+            parent = parent.parent()
+        for ancestor in reversed(ancestors):
+            ancestor.ensure_children_loaded()
+            index = document.model.index_for_node(ancestor)
+            if index.isValid():
+                view.tree.expand(index)
+        return document.model.index_for_node(node)
+
+    def _select_nodes(self, nodes, *, focus=None) -> bool:
+        view = self.current_view()
+        document = self.current_document()
+        if view is None or document is None:
+            return False
+        indexes = []
+        for node in nodes:
+            index = self._visible_index(node, view, document)
+            if index.isValid():
+                indexes.append(index)
+        if not indexes:
+            return False
+        selection = view.tree.selectionModel()
+        blocker = QtCore.QSignalBlocker(selection)
+        selection.clearSelection()
+        for position, index in enumerate(indexes):
+            flags = (
+                QtCore.QItemSelectionModel.SelectionFlag.Select |
+                QtCore.QItemSelectionModel.SelectionFlag.Rows
+            )
+            if position == 0:
+                flags |= QtCore.QItemSelectionModel.SelectionFlag.Clear
+            selection.select(index, flags)
+        del blocker
+        focus_index = self._visible_index(focus, view, document) if focus is not None else indexes[0]
+        if not focus_index.isValid():
+            focus_index = indexes[0]
+        selection.setCurrentIndex(focus_index, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate)
+        view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+        view.tree.scrollTo(focus_index, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.show_node(focus if focus is not None else view.document.model.node(focus_index))
+        return True
+
+    def _reveal_node(self, node) -> bool:
+        return self._select_nodes([node], focus=node)
+
+    def _focus_node(self, node) -> bool:
+        view = self.current_view()
+        document = self.current_document()
+        if view is None or document is None:
+            return False
+        index = self._visible_index(node, view, document)
+        if not index.isValid():
+            return False
+        view.tree.selectionModel().setCurrentIndex(
+            index, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate
+        )
+        view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+        view.tree.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.show_node(node)
+        return True
+
+    def search_nodes(self) -> None:
+        document = self.current_document()
+        if document is None:
+            return
+        expression, accepted = QtWidgets.QInputDialog.getText(
+            self,
+            "Search tree",
+            "Noder predicate (for example: n:Coordinate* or t:Zone_t):",
+            text=self.search_expression,
+        )
+        if not accepted:
+            return
+        expression = expression.strip()
+        if not expression:
+            self.search_expression = ""
+            self.search_results = []
+            self.search_index = -1
+            return
+        if not expression.startswith(("/", "\\")):
+            expression = "/ " + expression
+        try:
+            self.search_expression = expression
+            self.search_results = document.root.pick().all_by_predicate(expression)
+            if not self.search_results:
+                self.search_index = -1
+                self.statusBar().showMessage(f"No match for {expression}")
+                return
+            self.search_index = 0
+            self._select_nodes(self.search_results, focus=self.search_results[0])
+            self.statusBar().showMessage(f"{len(self.search_results)} match(es) for {expression}")
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self, "Search failed", str(error))
+
+    def navigate_search(self, step: int) -> None:
+        if not self.search_results:
+            if self.search_expression:
+                try:
+                    document = self.current_document()
+                    self.search_results = document.root.pick().all_by_predicate(self.search_expression)
+                except Exception:
+                    self.search_results = []
+            if not self.search_results:
+                self.search_nodes()
+                return
+        self.search_index = (self.search_index + step) % len(self.search_results)
+        self._focus_node(self.search_results[self.search_index])
+
+    def new_nodes(self) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        if document is None:
+            return
+        targets = self._current_nodes() or [document.root]
+        created = []
+        document.model.beginResetModel()
+        try:
+            for target in targets:
+                document.model.prepare_for_structural_edit(target)
+                existing = {child.name() for child in target.loaded_children()}
+                name = "NewNode"
+                suffix = 1
+                while name in existing:
+                    suffix += 1
+                    name = f"NewNode{suffix}"
+                node = Node(name, "UserDefinedData_t")
+                target.add_child(node, override_sibling_by_name=False)
+                created.append(node)
+        finally:
+            document.model.endResetModel()
+        document.mark_changed(full=True)
+        if created:
+            self._reveal_node(created[0])
+
+    def cut_nodes(self) -> None:
+        if self.read_only:
+            return
+        self.copy_nodes()
+        self.delete_nodes()
+
+    def swap_nodes(self) -> None:
         if self.read_only:
             return
         document = self.current_document()
         nodes = self._current_nodes()
-        if not document or len(nodes) != 1:
+        if document is None or len(nodes) != 2 or nodes[0].parent() is not nodes[1].parent():
+            self.statusBar().showMessage("Select exactly two sibling nodes to swap")
             return
-        node = nodes[0]
-        name = self.name_edit.text().strip()
-        node_type = self.type_edit.text().strip()
-        if name and name != node.name():
-            node.set_name(name)
-            document.mark_changed(full=True)
-        if node_type and node_type != node.type():
-            node.set_type(node_type)
-            document.mark_changed(full=True)
-        text = self.value_edit.toPlainText().strip()
-        if text:
-            try:
-                value = _parse_value(text)
-            except (ValueError, SyntaxError) as error:
-                QtWidgets.QMessageBox.warning(self, "Value not changed", str(error))
-            else:
-                document.edit_node_data(node, value)
-        document.model.layoutChanged.emit()
-        self.show_node(node)
+        document.model.beginResetModel()
+        try:
+            document.model.prepare_for_structural_edit(nodes[0].parent())
+            nodes[0].swap(nodes[1])
+        finally:
+            document.model.endResetModel()
+        document.mark_changed(full=True)
+
+    def _update_save_node_state(self) -> None:
+        document = self.current_document()
+        node = self._selected_node
+        enabled = (
+            not self.read_only
+            and document is not None
+            and bool(document.filename)
+            and node is not None
+            and node is not document.root
+            and not document.requires_full_write
+        )
+        self.save_node_button.setEnabled(enabled)
+
+    def save_current_node(self) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        node = self._selected_node
+        if document is None or node is None:
+            return
+        progress = self._progress("Save node", f"Saving {node.name()}…")
+        try:
+            document.save_node_only(node)
+            self.statusBar().showMessage(f"Saved node {node.path()}")
+        except Exception as error:
+            QtWidgets.QMessageBox.critical(self, "Save node failed", str(error))
+        finally:
+            progress.close()
+            self._update_save_node_state()
 
     def copy_nodes(self) -> None:
         nodes = self._current_nodes()
@@ -446,15 +1007,91 @@ class MainWindow(QtWidgets.QMainWindow):
         nodes = self._current_nodes()
         if not document or not nodes:
             return
-        target = nodes[0]
         document.model.beginResetModel()
         try:
-            document.model.prepare_for_structural_edit(target)
-            for node in self.clipboard_nodes:
-                target.add_child(node.copy(deep=True))
+            for target in nodes:
+                document.model.prepare_for_structural_edit(target)
+                for node in self.clipboard_nodes:
+                    target.add_child(node.copy(deep=True), override_sibling_by_name=False)
         finally:
             document.model.endResetModel()
         document.mark_changed(full=True)
+
+    def _read_link(self, document: TreeDocument, node) -> None:
+        if not node.has_link_target():
+            return
+        target_file = node.link_target_file()
+        if target_file:
+            link_file = Path(target_file)
+            if not link_file.is_absolute() and document.filename:
+                link_file = Path(document.filename).resolve().parent / link_file
+            target_filename = str(link_file)
+        else:
+            target_filename = document.filename
+        if not target_filename:
+            raise ValueError(f"No source file is available for link {node.path()}")
+        reader = noder_io.LazyHdf5Reader(target_filename)
+        try:
+            target_root = reader.root()
+            target_path = node.link_target_path()
+            target = target_root.get_at_path(target_path)
+            if target is None:
+                raise ValueError(f"Link target does not exist: {target_filename}:{target_path}")
+            self._materialise_node(target)
+            parent = node.parent()
+            if parent is None:
+                raise ValueError("Cannot read a detached link node")
+            children = list(node.children())
+            for child in children:
+                child.detach()
+            node.clear_link_target()
+            node.set_type(target.type())
+            node.set_data(target.numpy() if target.has_data() else None)
+            for child in target.children():
+                node.add_child(child.copy(deep=True), override_sibling_by_name=False)
+        finally:
+            reader.close()
+
+    @staticmethod
+    def _materialise_node(node) -> None:
+        node.ensure_children_loaded()
+        if node.has_data():
+            node.data()
+        for child in node.loaded_children():
+            MainWindow._materialise_node(child)
+
+    def _read_links_operation(self, recursive: bool) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        nodes = self._current_nodes()
+        if document is None or not nodes:
+            return
+        progress = self._progress("Read links", "Reading linked nodes…")
+        count = 0
+        document.model.beginResetModel()
+        try:
+            for node in self._walk_nodes(nodes, recursive):
+                if progress.wasCanceled():
+                    break
+                if node.has_link_target():
+                    self._read_link(document, node)
+                    count += 1
+                QtWidgets.QApplication.processEvents()
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self, "Read link failed", str(error))
+        finally:
+            document.model.endResetModel()
+            progress.close()
+        if count:
+            document.mark_changed(full=True)
+        self.statusBar().showMessage(f"Read {count} link(s)")
+
+    def read_current_links(self) -> None:
+        self._read_links_operation(False)
+
+    def read_recursive_links(self) -> None:
+        self._read_links_operation(True)
 
     def delete_nodes(self) -> None:
         view = self.current_view()
@@ -470,20 +1107,46 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _document_changed(self) -> None:
         self.apply_current_tab_title()
+        self._update_save_node_state()
+
+    def _switch_tab(self, step: int) -> None:
+        count = self.tabs.count()
+        if count < 2:
+            return
+        self.tabs.setCurrentIndex((self.tabs.currentIndex() + step) % count)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # QTabWidget normally gives the tab bar focus when a QMainWindow is
+        # first shown.  Defer one event turn so keyboard tree navigation starts
+        # immediately on the newly opened root node.
+        QtCore.QTimer.singleShot(0, self._focus_current_tree)
+
+    def _focus_current_tree(self) -> None:
+        view = self.current_view()
+        if view is not None:
+            view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
 
     def _current_tab_changed(self, _index: int) -> None:
+        self.search_expression = ""
+        self.search_results = []
+        self.search_index = -1
         view = self.current_view()
         if view:
             nodes = view.tree.selected_nodes()
             self.show_node(nodes[0] if nodes else None)
+            view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
             self.apply_current_tab_title()
 
     def _save_document(self, document: TreeDocument) -> bool:
+        progress = self._progress("Save tree", f"Saving {document.title}…")
         try:
             document.save()
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(error))
             return False
+        finally:
+            progress.close()
         return True
 
     def save_current(self) -> None:
@@ -506,11 +1169,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self._save_document_as(document, filename)
 
     def _save_document_as(self, document: TreeDocument, filename: str) -> bool:
+        progress = self._progress("Save tree", f"Saving {Path(filename).name}…")
         try:
             document.save(filename)
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(error))
             return False
+        finally:
+            progress.close()
         self.apply_current_tab_title()
         return True
 
@@ -563,25 +1229,9 @@ class MainWindow(QtWidgets.QMainWindow):
         event.accept()
 
 
-def _format_value(value) -> str:
-    if value is None:
-        return ""
-    array = np.asarray(value)
-    if array.size > 2000:
-        return f"{array.dtype} shape={array.shape} ({array.size} values)"
-    return repr(value)
-
-
 def _table_value(value) -> str:
     if isinstance(value, (bytes, np.bytes_)):
         return bytes(value).decode("utf-8", errors="replace").rstrip("\x00 ")
     if isinstance(value, (float, np.floating)):
         return f"{float(value):g}"
     return str(value)
-
-
-def _parse_value(text: str):
-    parsed = ast.literal_eval(text)
-    if parsed is None or isinstance(parsed, (int, float, complex, str, bool)):
-        return parsed
-    return np.asarray(parsed)

@@ -9,11 +9,20 @@ def test_cli_accepts_read_only_and_multiple_files():
     assert args.files == ["one.cgns", "two.hdf5"]
 
 
-def test_cli_removed_skeleton_option():
+def test_cli_accepts_full_load():
     from treelab.gui.main import build_parser
 
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["-s", "tree.cgns"])
+    args = build_parser().parse_args(["-f", "tree.cgns"])
+    assert args.full is True
+    assert args.files == ["tree.cgns"]
+
+
+def test_cli_accepts_safe_mode():
+    from treelab.gui.main import build_parser
+
+    args = build_parser().parse_args(["-s", "tree.cgns"])
+    assert args.safe_mode is True
+    assert args.files == ["tree.cgns"]
 
 
 def test_legacy_cgns_import_has_explicit_migration_error():

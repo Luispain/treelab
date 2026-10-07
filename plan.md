@@ -1,13 +1,18 @@
-[DONE] Contracts, benchmarks, and startup baseline
-[DONE] Noder lazy reader and `save_this_node_only` priority fix
-[DONE] Treelab backend migration; old `treelab.cgns` removed
-[DONE] GUI split, fixed native style, plotting retained
-[DONE] Lazy base-level model, read-only mode, CLI, and edit commands
-[DONE] Targeted payload save through noder
-[DONE] Harden structural edits and persistence across lazy tabs
-[DONE] Readable light native palette; visible tabs, menus, and opened tree rows
-[DONE] Explicit noder API guard and development-path alignment
-[DONE] Payload loaded-state binding, cgnsviz summaries, F5 table, and 3D slices
-[DONE] Restored CGNS type-specific icons and widened Name column
-[NEXT] General lazy structural writer for delete/rename/move without full materialization
-[LATER] Preserve existing HDF5 dataset storage during targeted payload replacement
+[DONE] Contracts, startup baseline, and Noder backend migration
+[DONE] Lazy reader, targeted `save_this_node_only`, and explicit legacy-import failure
+[DONE] Split GUI, fixed native light style, read-only mode, plotting, CLI `-r`/`-f`
+[DONE] Base-only startup model, Noder payload markers, type icons, and widened Name column
+[DONE] Movable/detachable toolbar with restored edit/save/search/plot actions and key help
+[DONE] Predicate search with Ctrl+F/F3/Shift+F3, all-match selection, and tab navigation
+[DONE] Editable payload table, string display modes, current/recursive F5/F6/F7 operations
+[DONE] Full/recursive payload materialization across UDD descendants
+[DONE] Waiting/progress widgets for open, full load, recursive operations, and save
+[DONE] Expansion/selection preservation across model-reset structural operations
+[DONE] Noder lazy payload unload/reload, installed in `noder/dist/dev`
+[DONE] Duplicate-safe paste/drag/drop, payload-only Node panel, and `Ctrl+W` tab closing
+[DONE] Targeted `Save Node` action using `save_this_node_only`
+[DONE] MOLA taskbar identity and compact payload markers synchronized with cgnsviz
+[DONE] Regression coverage for duplicate paste, targeted save, compact markers, and CLI `-f`
+[DONE] Safe HDF5/CGNS reading with `Corrupted_t` markers, Noder warnings, cgnsviz `-s`, and TreeLab `-s`
+[NEXT] General lazy structural writer for edits without full tree materialization
+[NEXT] Preserve existing HDF5 dataset storage during targeted payload replacement
