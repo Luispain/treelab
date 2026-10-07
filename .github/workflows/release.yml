@@ -11,6 +11,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,6 +28,13 @@ jobs:
         run: |
           pip install .[test]
           pytest
+
+      - name: Verify package version matches release tag
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(python -c 'import treelab; print(treelab.__version__)')"
+          test "$actual" = "$expected"
 
       - name: Build universal wheel
         run: hatch build

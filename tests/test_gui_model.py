@@ -215,12 +215,152 @@ def test_save_node_targets_only_the_edited_payload(tmp_path, qapp):
     node = window.current_document().root.get_at_path("Value")
     window.show_node(node)
     window.payload_table.item(0, 0).setText("9.5")
+    assert window.save_node_button.isEnabled()
     window.save_current_node()
     saved = noder_io.read(str(filename)).get_at_path("Value")
     assert saved.numpy().tolist() == [9.5, 2.0]
     assert not window.current_document().dirty
     assert not hasattr(window, "name_edit")
     assert window.action_close_tab.shortcut().toString() == "Ctrl+W"
+    window.close()
+
+
+def test_save_node_button_handles_name_and_type_edits(tmp_path, qapp):
+    filename = tmp_path / "save-node-metadata.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    node = Node("Value", "UserDefinedData_t")
+    node.set_data(np.array([1.0]))
+    root.add_child(node)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    document = window.current_document()
+    tree = window.current_view().tree
+    root_index = tree.model().index(0, 0)
+    node_index = tree.model().index(0, 0, root_index)
+    tree.selectionModel().select(
+        node_index,
+        QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+        QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+    tree.selectionModel().setCurrentIndex(
+        node_index, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate
+    )
+
+    assert document.model.setData(
+        node_index.siblingAtColumn(1),
+        "DataArray_t",
+        QtCore.Qt.ItemDataRole.EditRole,
+    )
+    assert window.save_node_button.isEnabled()
+    window.save_current_node()
+    saved = noder_io.read(str(filename))
+    assert saved.get_at_path("Value").type() == "DataArray_t"
+    assert not document.dirty
+
+    assert document.model.setData(node_index, "Renamed")
+    assert not window.save_node_button.isEnabled()
+    window.save_current()
+    saved = noder_io.read(str(filename))
+    assert saved.get_at_path("Renamed") is not None
+    assert not document.dirty
+    window.close()
+
+
+def test_new_payload_and_save_node_propagate_to_all_selected_nodes(tmp_path, qapp, monkeypatch):
+    filename = tmp_path / "multi-save-node.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    for name in ("First", "Second"):
+        node = Node(name, "DataArray_t")
+        node.set_data(np.array([0.0, 0.0]))
+        root.add_child(node)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    tree = window.current_view().tree
+    root_index = tree.model().index(0, 0)
+    first = tree.model().index(0, 0, root_index)
+    second = tree.model().index(1, 0, root_index)
+    selection = tree.selectionModel()
+    selection.clearSelection()
+    selection.select(
+        first,
+        QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+        QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+    selection.select(
+        second,
+        QtCore.QItemSelectionModel.SelectionFlag.Select |
+        QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+
+    class AcceptedPayloadDialog:
+        def __init__(self, parent):
+            pass
+
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+        def expression(self):
+            return "np.arange(2) + 4"
+
+    monkeypatch.setattr(
+        "treelab.gui.window.NewPayloadDialog", AcceptedPayloadDialog
+    )
+    window.new_payload()
+    assert [node.numpy().tolist() for node in window._current_nodes()] == [
+        [4.0, 5.0], [4.0, 5.0]
+    ]
+    window.save_current_node()
+    saved = noder_io.read(str(filename))
+    assert saved.get_at_path("First").numpy().tolist() == [4.0, 5.0]
+    assert saved.get_at_path("Second").numpy().tolist() == [4.0, 5.0]
+    assert not window.current_document().dirty
+    window.close()
+
+
+def test_rename_paths_suffix_duplicate_siblings_and_multi_edit(qapp, monkeypatch):
+    window = MainWindow([])
+    root = window.current_document().root
+    first = Node("First", "UserDefinedData_t")
+    second = Node("Second", "UserDefinedData_t")
+    root.add_child(first)
+    root.add_child(second)
+    model = window.current_document().model
+    root_index = model.index(0, 0)
+    second_index = model.index(1, 0, root_index)
+
+    assert model.setData(second_index, "First")
+    assert [node.name() for node in root.children()] == ["First", "First.0"]
+
+    tree = window.current_view().tree
+    indexes = [model.index(0, 0, root_index), model.index(1, 0, root_index)]
+    selection = tree.selectionModel()
+    selection.clearSelection()
+    for position, index in enumerate(indexes):
+        selection.select(
+            index,
+            (QtCore.QItemSelectionModel.SelectionFlag.Clear if position == 0 else
+             QtCore.QItemSelectionModel.SelectionFlag.NoUpdate) |
+            QtCore.QItemSelectionModel.SelectionFlag.Select |
+            QtCore.QItemSelectionModel.SelectionFlag.Rows,
+        )
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog,
+        "getText",
+        staticmethod(lambda *args, **kwargs: ("Renamed", True)),
+    )
+    window.rename_selected_nodes()
+    assert [node.name() for node in root.children()] == ["Renamed", "Renamed.0"]
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog,
+        "getText",
+        staticmethod(lambda *args, **kwargs: ("DataArray_t", True)),
+    )
+    window.set_selected_node_type()
+    assert [node.type() for node in root.children()] == ["DataArray_t", "DataArray_t"]
+    window.current_document().dirty = False
     window.close()
 
 
@@ -295,6 +435,35 @@ def test_cross_document_move_marks_and_persists_both_documents(tmp_path, qapp):
     target.close()
 
 
+def test_drag_move_suffixes_a_conflicting_sibling_name(tmp_path, qapp):
+    source_filename = tmp_path / "drag-source.cgns"
+    target_filename = tmp_path / "drag-target.cgns"
+    _tree(["Child"]).write(str(source_filename))
+    _tree(["Child"]).write(str(target_filename))
+
+    source = TreeDocument(str(source_filename), parent=qapp)
+    target = TreeDocument(str(target_filename), parent=qapp)
+    _source_base, source_base_index = _base(source)
+    _target_base, target_base_index = _base(target)
+    source.model.fetchMore(source_base_index)
+    source_index = source.model.index(0, 0, source_base_index)
+    mime = source.model.mimeData([source_index])
+
+    assert target.model.dropMimeData(
+        mime,
+        QtCore.Qt.DropAction.MoveAction,
+        -1,
+        0,
+        target_base_index,
+    )
+    target_base = target.root.get_at_path("Base")
+    assert [child.name() for child in target_base.children()] == ["Child", "Child.0"]
+    source.dirty = False
+    target.dirty = False
+    source.close()
+    target.close()
+
+
 def test_model_columns_icons_and_payload_marker(qapp):
     root = Node("CGNSTree", "CGNSTree_t")
     base = Node("Base", "CGNSBase_t")
@@ -311,9 +480,9 @@ def test_model_columns_icons_and_payload_marker(qapp):
     zone_index = model.index(0, 0, base_index)
     data_index = model.index(0, 0, zone_index)
     assert [model.headerData(i, QtCore.Qt.Orientation.Horizontal) for i in range(3)] == [
-        "Name", "Type", "Payload summary"
+        "Name", "Type", "Payload summary (stats: min, max, mean, median)"
     ]
-    assert model.data(data_index.siblingAtColumn(2)) == "mn=0 MX=11 avg=5.5 med=5.5"
+    assert model.data(data_index.siblingAtColumn(2)) == "stats: 0, 11, 5.5, 5.5"
     icons = [model.data(index, QtCore.Qt.ItemDataRole.DecorationRole).cacheKey()
              for index in (root_index, base_index, zone_index)]
     assert len(set(icons)) == 3
@@ -328,6 +497,81 @@ def test_payload_table_shows_loaded_values(qapp):
     window.show_node(payload)
     assert window.payload_table.item(0, 0).text() == "0"
     assert window.payload_table.item(1, 2).text() == "5"
+    window.close()
+
+
+def test_new_tab_action_and_permanent_plus_tab(qapp):
+    window = MainWindow([])
+
+    assert window.action_new_tab.shortcut().toString() == "Ctrl+Shift+T"
+    assert not hasattr(window, "action_new")
+    toolbar = window.findChild(QtWidgets.QToolBar, "treeToolsToolbar")
+    assert toolbar is not None
+    assert window.action_new_tab not in toolbar.actions()
+    assert window.tabs.count() == len(window.documents) + 1
+    plus_index = window._plus_tab_index()
+    assert not window.tabs.tabIcon(plus_index).isNull()
+
+    window._tab_bar_clicked(plus_index)
+    assert len(window.documents) == 2
+    assert window.tabs.count() == len(window.documents) + 1
+    assert window.tabs.currentIndex() == len(window.documents) - 1
+    window.close()
+
+
+def test_payload_path_is_copyable_and_dump_data(tmp_path, monkeypatch, qapp):
+    root = Node("CGNSTree", "CGNSTree_t")
+    base = Node("Base", "CGNSBase_t")
+    payload = Node("Density", "DataArray_t")
+    payload.set_data(np.array([1.0, 2.0, 3.0]))
+    base.add_child(payload)
+    root.add_child(base)
+
+    window = MainWindow([])
+    window.current_document().root = root
+    output = tmp_path / "density.txt"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(output), "Text files (*.txt)"),
+    )
+    window.show_node(payload)
+    window.dump_current_node_data()
+
+    assert window.node_path_edit.isReadOnly()
+    assert window.node_path_edit.text() == "Base/Density"
+    assert not hasattr(window, "plot_button")
+    assert window.new_payload_button.text() == "New payload"
+    assert output.read_text(encoding="utf-8") == "1 2 3\n"
+    window.close()
+
+
+def test_new_payload_reference_resolves_an_open_tab_read_only(qapp):
+    window = MainWindow([])
+    source = Node("Source", "DataArray_t")
+    source.set_data(np.arange(4, dtype=float))
+    window.current_document().root.add_child(source)
+
+    values = window._resolve_payload_reference("Untitled", "Source")
+
+    np.testing.assert_array_equal(values, np.arange(4, dtype=float))
+    assert not values.flags.writeable
+    window.close()
+
+
+def test_selected_payload_cells_can_be_registered_for_plotting(qapp):
+    payload = Node("Density", "DataArray_t")
+    payload.set_data(np.arange(6, dtype=float).reshape(2, 3))
+    window = MainWindow([])
+    window.show_node(payload)
+    table = window.payload_table
+    table.setRangeSelected(QtWidgets.QTableWidgetSelectionRange(0, 0, 1, 1), True)
+
+    window.add_selected_to_plot_x()
+
+    source = window.plot_window.session.x_sources[0]
+    np.testing.assert_array_equal(source.values, np.array([[0.0, 1.0], [3.0, 4.0]]))
+    assert " from selected cells of table" in window.statusBar().currentMessage()
     window.close()
 
 

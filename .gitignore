@@ -2,6 +2,7 @@
 *.pyc
 *.odg
 __pycache__
+src/treelab/_version.py
 *.dat
 *.cgns
 *.adf

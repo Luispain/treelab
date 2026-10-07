@@ -1,9 +1,12 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "src/treelab/__init__.py"
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/treelab/_version.py"
 
 [project]
 name = "mola-treelab"
@@ -18,14 +21,21 @@ readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Operating System :: OS Independent",
 ]
 dependencies = [
   "numpy>=1.21.0",
   "noder>=1.2.0",
-  "matplotlib>=3.6.2",
-  'pyside6',
+  "pyqtgraph>=0.14.0; python_version >= '3.10'",
+  "pyqtgraph>=0.13.2,<0.14.0; python_version < '3.10'",
+  "pyside6; python_version >= '3.10'",
+  "pyside6>=6.2,<6.6; python_version < '3.10'",
 ]
 
 [project.optional-dependencies]

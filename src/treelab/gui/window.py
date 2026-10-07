@@ -5,17 +5,23 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from .. import __version__
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from noder.core import Node
 import noder.core.io as noder_io
 
 from .document import TreeDocument
+from .model import rename_node_unique, unique_sibling_name
 from .payload import (
     PAYLOAD_ELEMENT_LIMIT,
     UNLOADED_MARKER,
     payload_array,
+    payload_dump_filename,
+    payload_dump_lines,
 )
+from .new_payload import NewPayloadDialog, PayloadExpressionError, evaluate_payload_expression
+from .plotter import PlotWindow
 
 
 GUI_PATH = Path(__file__).resolve().parent
@@ -46,8 +52,8 @@ class TreeView(QtWidgets.QTreeView):
         header.setStretchLastSection(False)
         for section in range(3):
             header.setSectionResizeMode(section, QtWidgets.QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(0, 360)
-        header.resizeSection(1, 130)
+        header.resizeSection(0, 250)
+        header.resizeSection(1, 120)
         header.resizeSection(2, 300)
         self._view_state = ([], [])
         document.model.modelAboutToBeReset.connect(self._capture_view_state)
@@ -162,7 +168,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search_expression = ""
         self.search_results: list = []
         self.search_index = -1
-        self.setWindowTitle("TreeLab")
+        self.plot_window: PlotWindow | None = None
+        self.resize(1070, 800)
+        self.setWindowTitle(f"MOLA TreeLab {__version__}")
         if MOLA_ICON.exists():
             self.setWindowIcon(QtGui.QIcon(str(MOLA_ICON)))
 
@@ -170,6 +178,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._current_tab_changed)
+        self.tabs.tabBar().tabBarClicked.connect(self._tab_bar_clicked)
+        self._plus_tab_page = QtWidgets.QWidget(self.tabs)
+        plus_index = self.tabs.addTab(
+            self._plus_tab_page,
+            _icon("fugue-icons-3.5.6/plus.png"),
+            "",
+        )
+        self.tabs.tabBar().setTabButton(
+            plus_index,
+            QtWidgets.QTabBar.ButtonPosition.RightSide,
+            None,
+        )
+        self.tabs.tabBar().setTabToolTip(plus_index, "New tab (Ctrl+Shift+T)")
         self.setCentralWidget(self.tabs)
 
         self._make_actions()
@@ -199,11 +220,11 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_open, "Open", "Ctrl+O")
         file_menu.addAction(self.action_open)
 
-        self.action_new = QtGui.QAction(_icon("fugue-icons-3.5.6/plus.png"), "New document", self)
-        self.action_new.setShortcut(QtGui.QKeySequence("Ctrl+Shift+N"))
-        self.action_new.triggered.connect(self.new_document)
-        help_text(self.action_new, "New document", "Ctrl+Shift+N")
-        file_menu.addAction(self.action_new)
+        self.action_new_tab = QtGui.QAction(_icon("fugue-icons-3.5.6/plus.png"), "New tab", self)
+        self.action_new_tab.setShortcut(QtGui.QKeySequence("Ctrl+Shift+T"))
+        self.action_new_tab.triggered.connect(self.new_document)
+        help_text(self.action_new_tab, "New tab", "Ctrl+Shift+T")
+        file_menu.addAction(self.action_new_tab)
 
         self.action_save = QtGui.QAction(_icon("fugue-icons-3.5.6/disk.png"), "Save", self)
         self.action_save.setShortcut(QtGui.QKeySequence.StandardKey.Save)
@@ -235,6 +256,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_new_node.triggered.connect(self.new_nodes)
         help_text(self.action_new_node, "New node", "Ctrl+N")
         edit_menu.addAction(self.action_new_node)
+
+        self.action_rename_nodes = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/blue-document-rename.png"),
+            "Rename node(s)",
+            self,
+        )
+        self.action_rename_nodes.triggered.connect(self.rename_selected_nodes)
+        help_text(self.action_rename_nodes, "Rename selected node(s)")
+        edit_menu.addAction(self.action_rename_nodes)
+
+        self.action_set_node_type = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/blue-document-attribute.png"),
+            "Set type of node(s)",
+            self,
+        )
+        self.action_set_node_type.triggered.connect(self.set_selected_node_type)
+        help_text(self.action_set_node_type, "Set type of selected node(s)")
+        edit_menu.addAction(self.action_set_node_type)
 
         self.action_cut = QtGui.QAction(_icon("fugue-icons-3.5.6/scissors-blue.png"), "Cut node(s)", self)
         self.action_cut.setShortcut(QtGui.QKeySequence.StandardKey.Cut)
@@ -275,6 +314,32 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_plot.triggered.connect(self.plot_selected)
         help_text(self.action_plot, "Plot selected data")
         view_menu.addAction(self.action_plot)
+
+        self.action_plot_add_x = QtGui.QAction(_icon("OwnIcons/x-16.png"), "Add selected data to X", self)
+        self.action_plot_add_x.setShortcut(QtGui.QKeySequence("X"))
+        self.action_plot_add_x.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+        self.action_plot_add_x.triggered.connect(self.add_selected_to_plot_x)
+        help_text(self.action_plot_add_x, "Add selected data to X", "X")
+        view_menu.addAction(self.action_plot_add_x)
+
+        self.action_plot_add_y = QtGui.QAction(_icon("OwnIcons/y-16.png"), "Add selected data to Y", self)
+        self.action_plot_add_y.setShortcut(QtGui.QKeySequence("Y"))
+        self.action_plot_add_y.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+        self.action_plot_add_y.triggered.connect(self.add_selected_to_plot_y)
+        help_text(self.action_plot_add_y, "Add selected data to Y", "Y")
+        view_menu.addAction(self.action_plot_add_y)
+
+        self.action_plot_add_curve = QtGui.QAction(_icon("OwnIcons/add-curve-16.png"), "Add plot curve", self)
+        self.action_plot_add_curve.triggered.connect(self.add_plot_curve)
+        help_text(self.action_plot_add_curve, "Add plot curve")
+        view_menu.addAction(self.action_plot_add_curve)
+
+        self.action_plot_draw = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Draw plot curves", self)
+        self.action_plot_draw.setShortcut(QtGui.QKeySequence("P"))
+        self.action_plot_draw.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
+        self.action_plot_draw.triggered.connect(self.draw_plot_curves)
+        help_text(self.action_plot_draw, "Draw plot curves", "P")
+        view_menu.addAction(self.action_plot_draw)
 
         self.action_search_next = QtGui.QAction("Next search match (F3)", self)
         self.action_search_next.setShortcut(QtGui.QKeySequence("F3"))
@@ -345,16 +410,21 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(QtCore.Qt.ToolBarArea.LeftToolBarArea, toolbar)
         toolbar.addAction(self.action_open)
-        toolbar.addAction(self.action_new)
         toolbar.addAction(self.action_save)
         toolbar.addAction(self.action_save_as)
         toolbar.addAction(self.action_new_node)
+        toolbar.addAction(self.action_rename_nodes)
+        toolbar.addAction(self.action_set_node_type)
         toolbar.addAction(self.action_delete)
         toolbar.addAction(self.action_cut)
         toolbar.addAction(self.action_copy)
         toolbar.addAction(self.action_paste)
         toolbar.addAction(self.action_search)
         toolbar.addAction(self.action_plot)
+        toolbar.addAction(self.action_plot_add_x)
+        toolbar.addAction(self.action_plot_add_y)
+        toolbar.addAction(self.action_plot_add_curve)
+        toolbar.addAction(self.action_plot_draw)
         toolbar.addSeparator()
         toolbar.addAction(self.action_load_payload)
         toolbar.addAction(self.action_unload_payload)
@@ -363,7 +433,8 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_swap)
 
         if self.read_only:
-            for action in (self.action_new, self.action_new_node, self.action_save, self.action_save_as,
+            for action in (self.action_new_node, self.action_save, self.action_save_as,
+                           self.action_rename_nodes, self.action_set_node_type,
                            self.action_cut, self.action_paste, self.action_delete, self.action_swap,
                            self.action_read_link, self.action_read_link_recursive):
                 action.setEnabled(False)
@@ -374,9 +445,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         panel = QtWidgets.QWidget(self.dock)
         form = QtWidgets.QFormLayout(panel)
+        self.node_path_edit = QtWidgets.QLineEdit(panel)
+        self.node_path_edit.setReadOnly(True)
+        self.node_path_edit.setPlaceholderText("Select a node to copy its path")
         self.payload_info = QtWidgets.QLabel(panel)
         self.payload_info.setWordWrap(True)
         self.payload_table = QtWidgets.QTableWidget(panel)
+        self.payload_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.payload_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectItems
+        )
         self.payload_table.setEditTriggers(
             QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked |
             QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed
@@ -408,18 +488,22 @@ class MainWindow(QtWidgets.QMainWindow):
         slice_layout.addWidget(self.payload_axis)
         slice_layout.addWidget(self.payload_slice)
         self.save_node_button = QtWidgets.QPushButton("Save Node", panel)
-        self.plot_button = QtWidgets.QPushButton("Plot", panel)
+        self.dump_data_button = QtWidgets.QPushButton("Dump data", panel)
+        self.new_payload_button = QtWidgets.QPushButton("New payload", panel)
+        form.addRow("Path", self.node_path_edit)
         form.addRow("Payload", self.payload_info)
         form.addRow("String view", mode_controls)
         form.addRow(self.payload_table)
         form.addRow("Slice", slice_controls)
         buttons = QtWidgets.QHBoxLayout()
         buttons.addWidget(self.save_node_button)
-        buttons.addWidget(self.plot_button)
+        buttons.addWidget(self.dump_data_button)
         form.addRow(buttons)
+        form.addRow(self.new_payload_button)
         self.dock.setWidget(panel)
         self.save_node_button.clicked.connect(self.save_current_node)
-        self.plot_button.clicked.connect(self.plot_selected)
+        self.dump_data_button.clicked.connect(self.dump_current_node_data)
+        self.new_payload_button.clicked.connect(self.new_payload)
         self.payload_axis.currentIndexChanged.connect(self._refresh_payload_table)
         self.payload_slice.valueChanged.connect(self._refresh_payload_table)
         self._selected_node = None
@@ -427,12 +511,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.read_only:
             self.payload_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
             self.save_node_button.setEnabled(False)
+            self.new_payload_button.setEnabled(False)
         else:
             self._update_save_node_state()
 
     def current_view(self) -> DocumentView | None:
         index = self.tabs.currentIndex()
-        return self.views[index] if index >= 0 else None
+        return self.views[index] if 0 <= index < len(self.views) else None
 
     def current_document(self) -> TreeDocument | None:
         view = self.current_view()
@@ -481,7 +566,8 @@ class MainWindow(QtWidgets.QMainWindow):
         document.changed.connect(self._document_changed)
         self.documents.append(document)
         self.views.append(view)
-        self.tabs.addTab(view, document.title)
+        tab_index = self.tabs.insertTab(self._plus_tab_index(), view, document.title)
+        self.tabs.tabBar().setTabToolTip(tab_index, document.title)
         self.tabs.setCurrentWidget(view)
         root_index = document.model.index(0, 0)
         self._expand_root_and_bases(view, root_index)
@@ -495,6 +581,13 @@ class MainWindow(QtWidgets.QMainWindow):
             root_index, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate
         )
         view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+
+    def _plus_tab_index(self) -> int:
+        return self.tabs.count() - 1
+
+    def _tab_bar_clicked(self, index: int) -> None:
+        if index == self._plus_tab_index():
+            self.new_document()
 
     def _show_safe_mode_warning(self, document: TreeDocument) -> None:
         if not self.safe_mode or not document.has_read_warnings:
@@ -515,6 +608,8 @@ class MainWindow(QtWidgets.QMainWindow):
             view.tree.collapse(view.document.model.index(row, 0, root_index))
 
     def close_tab(self, index: int) -> None:
+        if index < 0 or index >= len(self.documents):
+            return
         document = self.documents[index]
         if document.dirty and not self.read_only:
             answer = QtWidgets.QMessageBox.question(
@@ -528,6 +623,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if answer == QtWidgets.QMessageBox.StandardButton.Save:
                 if not self._save_document(document):
                     return
+        if self.plot_window is not None:
+            self.plot_window.remove_document(document)
         document.close()
         self.tabs.removeTab(index)
         self.views.pop(index)
@@ -537,22 +634,36 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def close_current_tab(self) -> None:
         index = self.tabs.currentIndex()
-        if index >= 0:
+        if 0 <= index < len(self.documents):
             self.close_tab(index)
 
     def _current_nodes(self) -> list:
         view = self.current_view()
         return view.tree.selected_nodes() if view else []
 
+    @staticmethod
+    def _node_path_without_root(node) -> str:
+        path = str(node.path()).strip("/")
+        try:
+            root_name = str(node.root().name()).strip("/")
+        except Exception:
+            root_name = ""
+        if path == root_name:
+            return ""
+        prefix = root_name + "/"
+        return path[len(prefix):] if root_name and path.startswith(prefix) else path
+
     def show_node(self, node) -> None:
         self._selected_node = node
         if node is None:
             self.dock.setWindowTitle("Node")
+            self.node_path_edit.clear()
             self.payload_info.clear()
             self._update_save_node_state()
             self._refresh_payload_table()
             return
         self.dock.setWindowTitle(node.path())
+        self.node_path_edit.setText(self._node_path_without_root(node))
         self._update_save_node_state()
         try:
             if not node.has_data():
@@ -562,6 +673,93 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as error:
             self.payload_info.setText(f"Payload unavailable: {error}")
         self._refresh_payload_table()
+
+    def _resolve_payload_reference(self, filename: str, path: str) -> np.ndarray:
+        requested_name = Path(filename).name
+        matches = []
+        for document in self.documents:
+            candidates = {document.title}
+            if document.filename:
+                candidates.add(str(document.filename))
+                candidates.add(Path(document.filename).name)
+            if filename in candidates or requested_name in candidates:
+                matches.append(document)
+        if not matches:
+            raise PayloadExpressionError(
+                f"No open tab matches payload file {filename!r}"
+            )
+        if len(matches) > 1:
+            raise PayloadExpressionError(
+                f"Payload file {filename!r} is ambiguous across open tabs"
+            )
+
+        document = matches[0]
+        node = document.root
+        parts = [part for part in path.strip("/").split("/") if part]
+        if parts and parts[0] == document.root.name():
+            parts = parts[1:]
+        for part in parts:
+            node.ensure_children_loaded()
+            child = next(
+                (candidate for candidate in node.loaded_children()
+                 if candidate.name() == part),
+                None,
+            )
+            if child is None:
+                child = next(
+                    (candidate for candidate in node.children()
+                     if candidate.name() == part),
+                    None,
+                )
+            if child is None:
+                raise PayloadExpressionError(
+                    f"Node path {path!r} was not found in {document.title!r}"
+                )
+            node = child
+
+        if not node.has_data():
+            raise PayloadExpressionError(
+                f"Node {node.path()} has no payload"
+            )
+        if hasattr(node, "data_is_loaded") and not node.data_is_loaded():
+            node.data()
+        values = node.numpy()
+        if values is None:
+            raise PayloadExpressionError(
+                f"Node {node.path()} has no NumPy-compatible payload"
+            )
+        array = np.array(values, copy=True)
+        array.setflags(write=False)
+        return array
+
+    def new_payload(self) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        nodes = self._selected_nodes_or_current()
+        if not nodes or document is None:
+            self.statusBar().showMessage("Select a node before creating a payload")
+            return
+        dialog = NewPayloadDialog(self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        expression = dialog.expression()
+        try:
+            value = evaluate_payload_expression(
+                expression,
+                self._resolve_payload_reference,
+            )
+            # Evaluate once so references are resolved before any selected
+            # target is changed; arrays are copied per target by the document.
+            document.edit_nodes_data(nodes, value)
+        except PayloadExpressionError as error:
+            QtWidgets.QMessageBox.warning(self, "New payload failed", str(error))
+            return
+        self.show_node(nodes[0])
+        if value is None:
+            self.statusBar().showMessage(f"Removed payload from {len(nodes)} node(s)")
+        else:
+            self.statusBar().showMessage(f"Created payload for {len(nodes)} node(s)")
 
     def _refresh_payload_table(self, *_args) -> None:
         table = getattr(self, "payload_table", None)
@@ -719,6 +917,59 @@ class MainWindow(QtWidgets.QMainWindow):
             self._refresh_payload_table()
         except (ValueError, SyntaxError, IndexError, TypeError) as error:
             self.statusBar().showMessage(f"Value not changed: {error}")
+
+    def _selected_table_values(self) -> np.ndarray | None:
+        items = self.payload_table.selectedItems()
+        if not items:
+            return None
+        parsed = {}
+        for item in items:
+            text = item.text().strip()
+            try:
+                value = ast.literal_eval(text)
+            except (ValueError, SyntaxError):
+                try:
+                    value = float(text)
+                except ValueError as error:
+                    raise ValueError("selected table cells are not numeric") from error
+            if isinstance(value, (str, bytes)):
+                raise ValueError("selected table cells are not numeric")
+            if isinstance(value, bool):
+                value = int(value)
+            parsed[(item.row(), item.column())] = value
+
+        rows = sorted({row for row, _column in parsed})
+        columns = sorted({column for _row, column in parsed})
+        rectangular = (
+            len(parsed) == len(rows) * len(columns)
+            and all((row, column) in parsed for row in rows for column in columns)
+        )
+        if rectangular and len(rows) > 1 and len(columns) > 1:
+            values = [[parsed[(row, column)] for column in columns] for row in rows]
+            result = np.asarray(values)
+        else:
+            result = np.asarray([parsed[key] for key in sorted(parsed)])
+        if not np.issubdtype(result.dtype, np.number):
+            raise ValueError("selected table cells are not numeric")
+        return result
+
+    def _add_table_selection_to_plot(self, axis: str) -> bool:
+        values = self._selected_table_values()
+        if values is None:
+            return False
+        document = self.current_document()
+        node = self._selected_node
+        if document is None or node is None:
+            return False
+        path = str(node.path())
+        label = f"{self._node_path_without_root(node)} [selected cells]"
+        try:
+            self._ensure_plot_window().add_values_to_axis(
+                axis, document, values, path, label
+            )
+        except ValueError as error:
+            self.statusBar().showMessage(str(error))
+        return True
 
     def _progress(self, title: str, label: str) -> QtWidgets.QProgressDialog:
         progress = QtWidgets.QProgressDialog(label, "Cancel", 0, 0, self)
@@ -928,12 +1179,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             for target in targets:
                 document.model.prepare_for_structural_edit(target)
-                existing = {child.name() for child in target.loaded_children()}
-                name = "NewNode"
-                suffix = 1
-                while name in existing:
-                    suffix += 1
-                    name = f"NewNode{suffix}"
+                name = unique_sibling_name(target, "NewNode")
                 node = Node(name, "UserDefinedData_t")
                 target.add_child(node, override_sibling_by_name=False)
                 created.append(node)
@@ -942,6 +1188,82 @@ class MainWindow(QtWidgets.QMainWindow):
         document.mark_changed(full=True)
         if created:
             self._reveal_node(created[0])
+
+    def _selected_nodes_or_current(self) -> list:
+        nodes = self._current_nodes()
+        if self._selected_node is not None and self._selected_node not in nodes:
+            nodes = [self._selected_node]
+        return nodes
+
+    def rename_selected_nodes(self) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        nodes = self._selected_nodes_or_current()
+        if document is None or not nodes:
+            self.statusBar().showMessage("Select at least one node to rename")
+            return
+        requested, accepted = QtWidgets.QInputDialog.getText(
+            self, "Rename node(s)", "New name:", text=nodes[0].name()
+        )
+        requested = str(requested).strip()
+        if not accepted or not requested:
+            return
+        renamed = 0
+        for node in nodes:
+            if node is document.root:
+                continue
+            document.model.prepare_for_structural_edit(node.parent())
+            rename_node_unique(node, requested)
+            index = document.model.index_for_node(node)
+            if index.isValid():
+                document.model.dataChanged.emit(
+                    index,
+                    index.siblingAtColumn(2),
+                    [QtCore.Qt.ItemDataRole.DisplayRole, QtCore.Qt.ItemDataRole.EditRole],
+                )
+            renamed += 1
+        if renamed:
+            document.mark_changed(full=True)
+            self.show_node(nodes[0])
+            self.statusBar().showMessage(f"Renamed {renamed} node(s)")
+
+    def set_selected_node_type(self) -> None:
+        if self.read_only:
+            return
+        document = self.current_document()
+        nodes = self._selected_nodes_or_current()
+        if document is None or not nodes:
+            self.statusBar().showMessage("Select at least one node to set its type")
+            return
+        requested, accepted = QtWidgets.QInputDialog.getText(
+            self, "Set node type", "New type:", text=nodes[0].type()
+        )
+        requested = str(requested).strip()
+        if not accepted or not requested:
+            return
+        changed = 0
+        changed_nodes = []
+        for node in nodes:
+            if node is document.root:
+                continue
+            node.set_type(requested)
+            index = document.model.index_for_node(node)
+            if index.isValid():
+                document.model.dataChanged.emit(
+                    index,
+                    index.siblingAtColumn(2),
+                    [QtCore.Qt.ItemDataRole.DisplayRole, QtCore.Qt.ItemDataRole.EditRole],
+                )
+            changed += 1
+            changed_nodes.append(node)
+        if changed:
+            # Type is an attribute edit at the existing HDF5 path and is
+            # supported by noder's targeted node writer.
+            for node in changed_nodes:
+                document.mark_changed(full=False, node=node)
+            self.show_node(nodes[0])
+            self.statusBar().showMessage(f"Set type for {changed} node(s)")
 
     def cut_nodes(self) -> None:
         if self.read_only:
@@ -967,13 +1289,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_save_node_state(self) -> None:
         document = self.current_document()
-        node = self._selected_node
+        nodes = self._selected_nodes_or_current()
         enabled = (
             not self.read_only
             and document is not None
             and bool(document.filename)
-            and node is not None
-            and node is not document.root
+            and any(node is not document.root for node in nodes)
             and not document.requires_full_write
         )
         self.save_node_button.setEnabled(enabled)
@@ -982,18 +1303,54 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.read_only:
             return
         document = self.current_document()
-        node = self._selected_node
-        if document is None or node is None:
+        nodes = self._selected_nodes_or_current()
+        if document is None:
             return
+        nodes = [node for node in nodes if node is not document.root]
+        if not nodes:
+            return
+        node = nodes[0]
         progress = self._progress("Save node", f"Saving {node.name()}…")
         try:
-            document.save_node_only(node)
-            self.statusBar().showMessage(f"Saved node {node.path()}")
+            for node in nodes:
+                document.save_node_only(node)
+            self.statusBar().showMessage(f"Saved {len(nodes)} node(s)")
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save node failed", str(error))
         finally:
             progress.close()
             self._update_save_node_state()
+
+    def dump_current_node_data(self) -> None:
+        node = self._selected_node
+        if node is None:
+            self.statusBar().showMessage("Select a node with payload data first")
+            return
+        try:
+            if not node.has_data():
+                raise ValueError(f"Node {node.path()} has no payload")
+            node.data()
+            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                "Dump node data",
+                payload_dump_filename(node),
+                "Text files (*.txt);;All files (*)",
+            )
+            if not filename:
+                return
+            if not filename.lower().endswith(".txt"):
+                filename += ".txt"
+            progress = self._progress("Dump data", f"Writing {Path(filename).name}â€¦")
+            try:
+                Path(filename).write_text(
+                    "\n".join(payload_dump_lines(node)) + "\n",
+                    encoding="utf-8",
+                )
+            finally:
+                progress.close()
+            self.statusBar().showMessage(f"Dumped data of node {node.path()} to {filename}")
+        except Exception as error:
+            QtWidgets.QMessageBox.critical(self, "Dump data failed", str(error))
 
     def copy_nodes(self) -> None:
         nodes = self._current_nodes()
@@ -1012,7 +1369,9 @@ class MainWindow(QtWidgets.QMainWindow):
             for target in nodes:
                 document.model.prepare_for_structural_edit(target)
                 for node in self.clipboard_nodes:
-                    target.add_child(node.copy(deep=True), override_sibling_by_name=False)
+                    copied = node.copy(deep=True)
+                    copied.set_name(unique_sibling_name(target, copied.name()))
+                    target.add_child(copied, override_sibling_by_name=False)
         finally:
             document.model.endResetModel()
         document.mark_changed(full=True)
@@ -1100,7 +1459,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def apply_current_tab_title(self) -> None:
         index = self.tabs.currentIndex()
-        if index >= 0:
+        if 0 <= index < len(self.documents):
             document = self.documents[index]
             title = ("*" if document.dirty else "") + document.title
             self.tabs.setTabText(index, title)
@@ -1108,9 +1467,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _document_changed(self) -> None:
         self.apply_current_tab_title()
         self._update_save_node_state()
+        if self.plot_window is not None:
+            self.plot_window.refresh_sources(redraw=self.plot_window.isVisible())
 
     def _switch_tab(self, step: int) -> None:
-        count = self.tabs.count()
+        count = len(self.documents)
         if count < 2:
             return
         self.tabs.setCurrentIndex((self.tabs.currentIndex() + step) % count)
@@ -1128,6 +1489,10 @@ class MainWindow(QtWidgets.QMainWindow):
             view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
 
     def _current_tab_changed(self, _index: int) -> None:
+        if _index == self._plus_tab_index():
+            if self.documents:
+                self.tabs.setCurrentIndex(min(self.tabs.currentIndex(), len(self.documents) - 1))
+            return
         self.search_expression = ""
         self.search_results = []
         self.search_index = -1
@@ -1137,6 +1502,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.show_node(nodes[0] if nodes else None)
             view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
             self.apply_current_tab_title()
+        if self.plot_window is not None:
+            self.plot_window.refresh_sources()
 
     def _save_document(self, document: TreeDocument) -> bool:
         progress = self._progress("Save tree", f"Saving {document.title}…")
@@ -1180,35 +1547,35 @@ class MainWindow(QtWidgets.QMainWindow):
         self.apply_current_tab_title()
         return True
 
+    def _ensure_plot_window(self) -> PlotWindow:
+        if self.plot_window is None:
+            self.plot_window = PlotWindow(self, self)
+        self.plot_window.refresh_sources()
+        return self.plot_window
+
     def plot_selected(self) -> None:
-        nodes = self._current_nodes()
-        if not nodes:
+        plot_window = self._ensure_plot_window()
+        plot_window.plot_selected(self.current_document(), self._current_nodes())
+
+    def add_selected_to_plot_x(self) -> None:
+        if self._add_table_selection_to_plot("x"):
             return
-        try:
-            import matplotlib
-            matplotlib.use("QtAgg", force=True)
-            import matplotlib.pyplot as plt
-            figure, axes = plt.subplots()
-            series = []
-            for node in nodes:
-                array = node.numpy()
-                if array is None or not np.issubdtype(np.asarray(array).dtype, np.number):
-                    continue
-                series.append((node, np.asarray(array).ravel(order="K")))
-            if not series:
-                raise ValueError("The selected node(s) have no numeric payload")
-            if len(series) == 2 and series[0][1].size == series[1][1].size:
-                axes.plot(series[0][1], series[1][1], label=f"{series[1][0].name()} vs {series[0][0].name()}")
-                axes.set_xlabel(series[0][0].name())
-                axes.set_ylabel(series[1][0].name())
-            else:
-                for node, values in series:
-                    axes.plot(values, label=node.name())
-            axes.set_title(nodes[0].path())
-            axes.legend()
-            figure.show()
-        except Exception as error:
-            QtWidgets.QMessageBox.warning(self, "Plot unavailable", str(error))
+        self._ensure_plot_window().add_selected_to_x()
+
+    def add_selected_to_plot_y(self) -> None:
+        if self._add_table_selection_to_plot("y"):
+            return
+        self._ensure_plot_window().add_selected_to_y()
+
+    def add_plot_curve(self) -> None:
+        plot_window = self._ensure_plot_window()
+        plot_window.add_curve()
+        plot_window.show_and_raise()
+
+    def draw_plot_curves(self) -> None:
+        plot_window = self._ensure_plot_window()
+        plot_window.draw()
+        plot_window.show_and_raise()
 
     def closeEvent(self, event) -> None:
         for document in reversed(self.documents):
@@ -1226,6 +1593,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     event.ignore()
                     return
             document.close()
+        if self.plot_window is not None:
+            self.plot_window.shutdown()
         event.accept()
 
 

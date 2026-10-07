@@ -34,7 +34,7 @@ def _node_icon(node) -> QtGui.QIcon:
     node_type = node.type()
     name = node.name()
     if node_type == "Root Node of HDF5 File":
-        return _icon("fugue-icons-3.5.6/tree-red.png")
+        return _icon("fugue-icons-3.5.6/tree.png")
     if node_type == "Corrupted_t":
         return _icon("fugue-icons-3.5.6/tree-red.png")
     if node.parent() is None or node_type == "CGNSTree_t":
@@ -65,7 +65,7 @@ def _node_icon(node) -> QtGui.QIcon:
         return _icon("fugue-icons-3.5.6/external.png")
     if node_type == "DataArray_t":
         if not getattr(node, "data_is_loaded", lambda: True)():
-            return _icon("fugue-icons-3.5.6/disk--arrow.png")
+            return _icon("fugue-icons-3.5.6/lightning.png")
         coordinate_icons = {
             "CoordinateX": "icons8/icons8-x-coordinate-16.png",
             "CoordinateY": "icons8/icons8-y-coordinate-16.png",
@@ -73,8 +73,8 @@ def _node_icon(node) -> QtGui.QIcon:
         }
         if name in coordinate_icons:
             return _icon(coordinate_icons[name])
-        return _icon("icons8/icons8-squelette-16.png")
-    return _icon("fugue-icons-3.5.6/tree.png")
+        return _icon("fugue-icons-3.5.6/blue-document-binary.png")
+    return _icon("fugue-icons-3.5.6/blue-document-binary.png")
 
 
 def _node_children(node, *, loaded_only: bool = True) -> list:
@@ -82,6 +82,40 @@ def _node_children(node, *, loaded_only: bool = True) -> list:
         return []
     children = node.loaded_children() if loaded_only else node.children()
     return [child for child in children if child.name() != "CGNSLibraryVersion"]
+
+
+def unique_sibling_name(parent, requested_name: str, *, exclude=None) -> str:
+    """Return a name that is unique among ``parent``'s children.
+
+    Noder deliberately allows callers to choose how duplicate sibling names
+    are handled.  TreeLab's editing contract is to preserve the requested
+    name when possible and otherwise append ``.0``, ``.1``, ... .  Loading all
+    sibling metadata here is intentional: a partially loaded lazy parent must
+    not make a valid existing name appear available.
+    """
+    requested_name = str(requested_name).strip()
+    if parent is None or not requested_name:
+        return requested_name
+    parent.ensure_children_loaded()
+    names = {
+        child.name()
+        for child in parent.loaded_children()
+        if child is not exclude
+    }
+    if requested_name not in names:
+        return requested_name
+    suffix = 0
+    while f"{requested_name}.{suffix}" in names:
+        suffix += 1
+    return f"{requested_name}.{suffix}"
+
+
+def rename_node_unique(node, requested_name: str) -> str:
+    """Rename one node using TreeLab's duplicate-sibling policy."""
+    parent = node.parent()
+    name = unique_sibling_name(parent, requested_name, exclude=node)
+    node.set_name(name)
+    return name
 
 
 class NoderTreeModel(QtCore.QAbstractItemModel):
@@ -157,7 +191,7 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
 
     def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if orientation == QtCore.Qt.Orientation.Horizontal and role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return ("Name", "Type", "Payload summary")[section] if section < 3 else None
+            return ("Name", "Type", "Payload summary (stats: min, max, mean, median)")[section] if section < 3 else None
         return None
 
     def rowCount(self, parent=QtCore.QModelIndex()) -> int:
@@ -235,13 +269,21 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         if not text:
             return False
         if index.column() == 0:
-            node.set_name(text)
+            parent = node.parent()
+            self._prepare_parent_for_edit(parent)
+            rename_node_unique(node, text)
         elif index.column() == 1:
             node.set_type(text)
         else:
             return False
         self.dataChanged.emit(index, index, [role, QtCore.Qt.ItemDataRole.DisplayRole])
-        self._document_changed(full=True)
+        # A type is stored as an HDF5 attribute at the existing group path,
+        # so it can use targeted save_this_node_only. A name changes that
+        # path and therefore still requires the complete writer.
+        self._document_changed(
+            full=index.column() == 0,
+            node=node if index.column() == 1 else None,
+        )
         return True
 
     def hasChildren(self, parent=QtCore.QModelIndex()) -> bool:
@@ -398,6 +440,7 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
                 node = source if is_move else source.copy(deep=True)
                 if is_move:
                     node.detach()
+                node.set_name(unique_sibling_name(target, node.name()))
                 node.attach_to(
                     target,
                     position=row if row >= 0 else -1,
@@ -437,7 +480,7 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             self.endResetModel()
         self._document_changed(full=True)
 
-    def _document_changed(self, *, full: bool) -> None:
+    def _document_changed(self, *, full: bool, node=None) -> None:
         document = QtCore.QObject.parent(self)
         if document is not None and hasattr(document, "mark_changed"):
-            document.mark_changed(full=full)
+            document.mark_changed(full=full, node=node)

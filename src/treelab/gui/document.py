@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import numpy as np
 
 from PySide6 import QtCore
 
@@ -70,10 +71,31 @@ class TreeDocument(QtCore.QObject):
         self.changed.emit()
 
     def edit_node_data(self, node, value) -> None:
+        self.edit_nodes_data([node], value)
+
+    def edit_nodes_data(self, nodes, value) -> None:
+        """Set one payload value on several nodes in one document update.
+
+        Array values are copied for each node so subsequent table edits to one
+        node cannot accidentally mutate the payload of another selected node.
+        """
         if self.read_only:
             return
-        node.set_data(value)
-        self.mark_changed(full=False, node=node)
+        unique_nodes = []
+        seen = set()
+        for node in nodes:
+            if id(node) not in seen:
+                seen.add(id(node))
+                unique_nodes.append(node)
+        nodes = unique_nodes
+        for node in nodes:
+            node_value = np.array(value, copy=True) if isinstance(value, np.ndarray) else value
+            node.set_data(node_value)
+            self._payload_dirty[id(node)] = node
+        if not nodes:
+            return
+        self.dirty = True
+        self.changed.emit()
         self.model.layoutChanged.emit()
 
     def save(self, filename: str | None = None) -> None:
@@ -87,7 +109,7 @@ class TreeDocument(QtCore.QObject):
 
         if not self.requires_full_write and self._payload_dirty:
             for node in self._payload_dirty.values():
-                node.save_this_node_only(self.filename)
+                self._save_targeted_node(node)
         else:
             self._write_full_file()
         self.dirty = False
@@ -105,11 +127,21 @@ class TreeDocument(QtCore.QObject):
             raise RuntimeError(
                 "Save Node is unavailable after structural edits; use Save for the complete tree"
             )
-        node.save_this_node_only(self.filename)
+        self._save_targeted_node(node)
         self._payload_dirty.pop(id(node), None)
         if not self._payload_dirty:
             self.dirty = False
         self.changed.emit()
+
+    def _save_targeted_node(self, node) -> None:
+        """Write one node without materialising unrelated lazy payloads."""
+        # Noder's focused HDF5 writer updates node attributes and rewrites
+        # that node's payload dataset. Materialise only this payload first;
+        # otherwise a type-only edit on a lazy node cannot be written while
+        # its lazy reader is in external-write mode.
+        if node.has_data() and not getattr(node, "data_is_loaded", lambda: True)():
+            node.data()
+        node.save_this_node_only(self.filename)
 
     def _write_full_file(self) -> None:
         model = self.model
