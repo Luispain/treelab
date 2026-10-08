@@ -13,6 +13,12 @@ import noder.core.io as noder_io
 
 from .document import TreeDocument
 from .model import rename_node_unique, unique_sibling_name
+from .style import (
+    apply_fixed_dark_palette,
+    apply_fixed_light_palette,
+    make_theme_icon,
+    palette_is_dark,
+)
 from .payload import (
     PAYLOAD_ELEMENT_LIMIT,
     UNLOADED_MARKER,
@@ -48,6 +54,8 @@ class TreeView(QtWidgets.QTreeView):
         self.setUniformRowHeights(True)
         self.setAlternatingRowColors(True)
         self.setIconSize(QtCore.QSize(18, 18))
+        self.setIndentation(20)
+        self.setRootIsDecorated(True)
         header = self.header()
         header.setStretchLastSection(False)
         for section in range(3):
@@ -58,6 +66,97 @@ class TreeView(QtWidgets.QTreeView):
         self._view_state = ([], [])
         document.model.modelAboutToBeReset.connect(self._capture_view_state)
         document.model.modelReset.connect(self._restore_view_state)
+
+    def _branch_path(self, index: QtCore.QModelIndex) -> list[QtCore.QModelIndex]:
+        path = []
+        current = index
+        while current.isValid():
+            path.append(current)
+            current = current.parent()
+        path.reverse()
+        return path
+
+    def _branch_continues(self, parent: QtCore.QModelIndex, child: QtCore.QModelIndex) -> bool:
+        """Whether the connector for ``child`` continues below this row."""
+        model = self.model()
+        visible_siblings = model.rowCount(parent)
+        if child.row() < visible_siblings - 1:
+            return True
+        # A lazy parent may have more children than are currently materialised.
+        # Keep the vertical connector open without fetching another page.
+        return bool(getattr(model, "canFetchMore", lambda _index: False)(parent))
+
+    def drawBranches(
+        self,
+        painter: QtGui.QPainter,
+        rect: QtCore.QRect,
+        index: QtCore.QModelIndex,
+    ) -> None:
+        """Paint stable tree connectors while retaining native tree behavior."""
+        path = self._branch_path(index)
+        if not path:
+            return
+
+        indentation = self.indentation()
+        left = rect.left()
+        center_y = rect.center().y()
+        line_role = (
+            QtGui.QPalette.ColorRole.Midlight
+            if palette_is_dark(self)
+            else QtGui.QPalette.ColorRole.Mid
+        )
+        line_color = self.palette().color(line_role)
+        if not line_color.isValid():
+            line_color = self.palette().color(QtGui.QPalette.ColorRole.Text)
+
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
+        pen = QtGui.QPen(line_color)
+        pen.setWidth(1)
+        painter.setPen(pen)
+
+        # Draw an ancestor connector while that branch has a later sibling.
+        # For the last direct child, retain only the short vertical segment
+        # above the horizontal connector, forming the expected L shape. Do
+        # not repeat that segment for deeper descendants: that was the source
+        # of the previous dashed-looking continuation.
+        depth = len(path) - 1
+        for level in range(len(path) - 1):
+            parent = path[level]
+            child = path[level + 1]
+            x = left + int((level + 0.5) * indentation)
+            if self._branch_continues(parent, child):
+                painter.drawLine(x, rect.top(), x, rect.bottom())
+            elif level + 1 == depth:
+                painter.drawLine(x, rect.top(), x, center_y)
+
+        node_x = left + int((depth + 0.5) * indentation)
+        if depth:
+            parent_x = left + int((depth - 0.5) * indentation)
+            painter.drawLine(parent_x, center_y, node_x, center_y)
+
+        # Use the existing square glyphs. Their 16-pixel footprint nearly fills
+        # the indentation and leaves only a minimal gap before the node icon.
+        # QTreeView still owns branch hit-testing and expansion state.
+        if self.model().hasChildren(index):
+            icon_name = (
+                "qtvsc/minus_square.png"
+                if self.isExpanded(index)
+                else "qtvsc/plus_square.png"
+            )
+            branch_icon = _icon(icon_name)
+            branch_icon.paint(
+                painter,
+                QtCore.QRect(node_x - 8, center_y - 8, 16, 16),
+                QtCore.Qt.AlignmentFlag.AlignCenter,
+            )
+        else:
+            # A small dot makes leaves immediately distinguishable without
+            # competing visually with the larger plus/minus controls.
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(line_color)
+            painter.drawEllipse(QtCore.QRect(node_x - 3, center_y - 3, 6, 6))
+        painter.restore()
 
     def _capture_view_state(self) -> None:
         expanded = []
@@ -304,11 +403,34 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_swap, "Swap nodes")
         edit_menu.addAction(self.action_swap)
 
+        self.action_new_payload = QtGui.QAction("New payload", self)
+        # Qt distinguishes the regular Return key from the keypad Enter key.
+        # Support both physical keys while displaying the customary binding.
+        self.action_new_payload.setShortcuts([
+            QtGui.QKeySequence("Shift+Enter"),
+            QtGui.QKeySequence("Shift+Return"),
+        ])
+        self.action_new_payload.setShortcutContext(
+            QtCore.Qt.ShortcutContext.WindowShortcut
+        )
+        self.action_new_payload.triggered.connect(self.new_payload)
+        help_text(self.action_new_payload, "New payload", "Shift+Enter")
+        edit_menu.addAction(self.action_new_payload)
+
         self.action_search = QtGui.QAction(_icon("fugue-icons-3.5.6/node-magnifier.png"), "Search…", self)
         self.action_search.setShortcut(QtGui.QKeySequence("Ctrl+F"))
         self.action_search.triggered.connect(self.search_nodes)
         help_text(self.action_search, "Search", "Ctrl+F")
         view_menu.addAction(self.action_search)
+
+        initial_dark = palette_is_dark(QtWidgets.QApplication.instance())
+        theme_label = "Switch to light mode" if initial_dark else "Switch to dark mode"
+        self.action_toggle_theme = QtGui.QAction(
+            make_theme_icon(initial_dark), theme_label, self
+        )
+        self.action_toggle_theme.triggered.connect(self.toggle_theme)
+        help_text(self.action_toggle_theme, theme_label)
+        view_menu.addAction(self.action_toggle_theme)
 
         self.action_plot = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Plot selected data", self)
         self.action_plot.triggered.connect(self.plot_selected)
@@ -408,7 +530,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.setAllowedAreas(QtCore.Qt.ToolBarArea.AllToolBarAreas)
         toolbar.setIconSize(QtCore.QSize(24, 24))
         toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.addToolBar(QtCore.Qt.ToolBarArea.LeftToolBarArea, toolbar)
+        self.addToolBar(QtCore.Qt.ToolBarArea.TopToolBarArea, toolbar)
         toolbar.addAction(self.action_open)
         toolbar.addAction(self.action_save)
         toolbar.addAction(self.action_save_as)
@@ -431,12 +553,15 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_read_link)
         toolbar.addSeparator()
         toolbar.addAction(self.action_swap)
+        toolbar.addSeparator()
+        toolbar.addAction(self.action_toggle_theme)
 
         if self.read_only:
             for action in (self.action_new_node, self.action_save, self.action_save_as,
                            self.action_rename_nodes, self.action_set_node_type,
                            self.action_cut, self.action_paste, self.action_delete, self.action_swap,
-                           self.action_read_link, self.action_read_link_recursive):
+                           self.action_read_link, self.action_read_link_recursive,
+                           self.action_new_payload):
                 action.setEnabled(False)
 
     def _make_property_dock(self) -> None:
@@ -522,6 +647,28 @@ class MainWindow(QtWidgets.QMainWindow):
     def current_document(self) -> TreeDocument | None:
         view = self.current_view()
         return view.document if view else None
+
+    def toggle_theme(self) -> None:
+        """Switch between TreeLab's fixed light and dark palettes."""
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        dark = not palette_is_dark(app)
+        if dark:
+            apply_fixed_dark_palette(app)
+        else:
+            apply_fixed_light_palette(app)
+
+        label = "Switch to light mode" if dark else "Switch to dark mode"
+        self.action_toggle_theme.setText(label)
+        self.action_toggle_theme.setIcon(make_theme_icon(dark))
+        self.action_toggle_theme.setToolTip(label)
+        self.action_toggle_theme.setStatusTip(label)
+        for view in self.views:
+            view.tree.viewport().update()
+            view.tree.header().viewport().update()
+        if self.plot_window is not None:
+            self.plot_window.apply_theme()
 
     def new_document(self) -> None:
         document = TreeDocument(
@@ -674,7 +821,43 @@ class MainWindow(QtWidgets.QMainWindow):
             self.payload_info.setText(f"Payload unavailable: {error}")
         self._refresh_payload_table()
 
-    def _resolve_payload_reference(self, filename: str, path: str) -> np.ndarray:
+    def _resolve_payload_reference(
+        self, filename: str, path: str, *, relative_to=None
+    ) -> np.ndarray:
+        if not filename:
+            node = relative_to or self._selected_node
+            if node is None or node.parent() is None:
+                raise PayloadExpressionError(
+                    f"Sibling payload reference {path!r} requires a selected node"
+                )
+            sibling_name = path.strip("/")
+            parent = node.parent()
+            parent.ensure_children_loaded()
+            sibling = next(
+                (candidate for candidate in parent.loaded_children()
+                 if candidate.name() == sibling_name),
+                None,
+            )
+            if sibling is None:
+                raise PayloadExpressionError(
+                    f"Sibling node {sibling_name!r} was not found next to {node.name()!r}"
+                )
+            node = sibling
+            if not node.has_data():
+                raise PayloadExpressionError(
+                    f"Node {node.path()} has no payload"
+                )
+            if hasattr(node, "data_is_loaded") and not node.data_is_loaded():
+                node.data()
+            values = node.numpy()
+            if values is None:
+                raise PayloadExpressionError(
+                    f"Node {node.path()} has no NumPy-compatible payload"
+                )
+            array = np.array(values, copy=True)
+            array.setflags(write=False)
+            return array
+
         requested_name = Path(filename).name
         matches = []
         for document in self.documents:
@@ -745,18 +928,25 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         expression = dialog.expression()
         try:
-            value = evaluate_payload_expression(
-                expression,
-                self._resolve_payload_reference,
-            )
-            # Evaluate once so references are resolved before any selected
-            # target is changed; arrays are copied per target by the document.
-            document.edit_nodes_data(nodes, value)
+            # Evaluate every target before changing any of them.  This keeps
+            # sibling references relative to each selected node and avoids a
+            # partial update if one target has a missing sibling.
+            values = [
+                evaluate_payload_expression(
+                    expression,
+                    lambda filename, path, node=node: self._resolve_payload_reference(
+                        filename, path, relative_to=node
+                    ),
+                )
+                for node in nodes
+            ]
+            for node, value in zip(nodes, values):
+                document.edit_node_data(node, value)
         except PayloadExpressionError as error:
             QtWidgets.QMessageBox.warning(self, "New payload failed", str(error))
             return
         self.show_node(nodes[0])
-        if value is None:
+        if all(value is None for value in values):
             self.statusBar().showMessage(f"Removed payload from {len(nodes)} node(s)")
         else:
             self.statusBar().showMessage(f"Created payload for {len(nodes)} node(s)")
@@ -1549,7 +1739,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _ensure_plot_window(self) -> PlotWindow:
         if self.plot_window is None:
-            self.plot_window = PlotWindow(self, self)
+            self.plot_window = PlotWindow(self)
         self.plot_window.refresh_sources()
         return self.plot_window
 

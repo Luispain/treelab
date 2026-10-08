@@ -8,7 +8,7 @@ import sys
 
 from PySide6 import QtGui, QtWidgets
 
-from .style import apply_fixed_light_palette
+from .style import apply_system_palette
 from .window import MOLA_ICON, MainWindow
 
 
@@ -54,7 +54,7 @@ def launch(argv=None) -> int:
     args = build_parser().parse_args(sys.argv[1:] if argv is None else argv)
     _set_windows_app_identity()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
-    apply_fixed_light_palette(app)
+    apply_system_palette(app)
     if MOLA_ICON.exists():
         app.setWindowIcon(QtGui.QIcon(str(MOLA_ICON)))
     window = MainWindow(

@@ -17,6 +17,7 @@ from treelab.gui.plotter import (
     expand_matching_axes,
     expanded_curve_color,
 )
+from treelab.gui.style import apply_fixed_dark_palette, apply_fixed_light_palette
 from treelab.gui.window import MainWindow
 
 
@@ -115,6 +116,9 @@ def test_plot_window_draws_multiple_curves_and_secondary_axis(qapp):
         document.root.add_child(node)
 
     plot = PlotWindow(window, window)
+    assert plot.parent() is None
+    assert plot.windowType() == QtCore.Qt.WindowType.Window
+    assert not plot.testAttribute(QtCore.Qt.WidgetAttribute.WA_QuitOnClose)
     plot.plot_selected(document, [x, y1, y2])
     qapp.processEvents()
 
@@ -135,6 +139,24 @@ def test_plot_window_draws_multiple_curves_and_secondary_axis(qapp):
     plot.shutdown()
     window.close()
     qapp.processEvents()
+
+
+def test_plot_window_follows_dark_theme(qapp):
+    apply_fixed_dark_palette(qapp)
+    window = MainWindow()
+    plot = PlotWindow(window, window)
+    try:
+        assert plot.dark_mode
+        assert plot.main_plot.backgroundBrush().color().name() == "#17181a"
+        apply_fixed_light_palette(qapp)
+        plot.apply_theme()
+        assert not plot.dark_mode
+        assert plot.main_plot.backgroundBrush().color().name() == "#ffffff"
+    finally:
+        plot.shutdown()
+        window.close()
+        apply_fixed_light_palette(qapp)
+        qapp.processEvents()
 
 
 def test_plot_window_renders_1d_x_against_2d_y(qapp):

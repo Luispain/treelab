@@ -10,22 +10,44 @@ from __future__ import annotations
 from typing import Iterable
 from pathlib import Path
 
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from .payload import payload_marker
+from .style import palette_is_dark
 
 
 _DRAG_NODES: dict[int, tuple[object, object]] = {}
 _NEXT_DRAG_ID = 1
-_ICON_CACHE: dict[str, QtGui.QIcon] = {}
+_ICON_CACHE: dict[tuple[str, bool], QtGui.QIcon] = {}
 _ICON_ROOT = Path(__file__).resolve().parent / "icons"
 
 
+def _brighten_icon(icon: QtGui.QIcon) -> QtGui.QIcon:
+    pixmap = icon.pixmap(QtCore.QSize(64, 64))
+    image = pixmap.toImage().convertToFormat(QtGui.QImage.Format.Format_ARGB32)
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() == 0:
+                continue
+            hue, saturation, value, alpha = color.getHsv()
+            if value < 190:
+                value = 190 + int(value * 65 / 190)
+                saturation = min(saturation, 230)
+                color.setHsv(0 if hue < 0 else hue, saturation, value, alpha)
+                image.setPixelColor(x, y, color)
+    return QtGui.QIcon(QtGui.QPixmap.fromImage(image))
+
+
 def _icon(relative_path: str) -> QtGui.QIcon:
-    icon = _ICON_CACHE.get(relative_path)
+    app = QtWidgets.QApplication.instance()
+    dark = bool(app is not None and palette_is_dark(app))
+    key = (relative_path, dark)
+    icon = _ICON_CACHE.get(key)
     if icon is None:
-        icon = QtGui.QIcon(str(_ICON_ROOT / relative_path))
-        _ICON_CACHE[relative_path] = icon
+        source = QtGui.QIcon(str(_ICON_ROOT / relative_path))
+        icon = _brighten_icon(source) if dark and relative_path.startswith("icons8/") else source
+        _ICON_CACHE[key] = icon
     return icon
 
 

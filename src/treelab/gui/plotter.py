@@ -16,6 +16,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from . import pyqtgraph_compat as pg_compat
+from .style import palette_is_dark
 
 
 PLOT_COLORS = (
@@ -27,6 +28,16 @@ PLOT_COLORS = (
     "#8c564b",
     "#e377c2",
     "#17becf",
+)
+PLOT_COLORS_DARK = (
+    "#66b3ff",
+    "#ffb366",
+    "#6ee7a0",
+    "#ff7180",
+    "#c5a3ff",
+    "#d5a679",
+    "#ff9dd2",
+    "#66e0e6",
 )
 INDEX_LABEL = "index"
 LINE_STYLES = ("-", "--", ":", ".-")
@@ -222,10 +233,21 @@ class CurveSpec:
 class PlotSession:
     """Document-independent curve/source state."""
 
-    def __init__(self) -> None:
+    def __init__(self, colors: tuple[str, ...] = PLOT_COLORS) -> None:
+        self.colors = tuple(colors) or PLOT_COLORS
         self.x_sources: list[PlotSource] = []
         self.y_sources: list[PlotSource] = []
         self.curves: list[CurveSpec] = []
+
+    def set_colors(self, colors: tuple[str, ...]) -> None:
+        """Set the default palette while preserving explicit user colors."""
+        colors = tuple(colors) or PLOT_COLORS
+        previous = self.colors
+        for index, curve in enumerate(self.curves):
+            previous_default = previous[index % len(previous)]
+            if curve.color == previous_default:
+                curve.color = colors[index % len(colors)]
+        self.colors = colors
 
     @staticmethod
     def _add_unique(
@@ -293,7 +315,7 @@ class PlotSession:
         curve = CurveSpec(
             x=x,
             y=y,
-            color=PLOT_COLORS[len(self.curves) % len(PLOT_COLORS)],
+            color=self.colors[len(self.curves) % len(self.colors)],
         )
         self.curves.append(curve)
         return curve
@@ -438,9 +460,17 @@ class PlotWindow(QtWidgets.QMainWindow):
     """Cross-tab curve editor and fast interactive plot."""
 
     def __init__(self, host, parent=None):
-        super().__init__(parent or host)
+        # Keep the plotter as an independent top-level application window.
+        # Giving it MainWindow as a QWidget parent makes Windows treat it as
+        # an owned auxiliary window, which excludes it from normal Alt+Tab and
+        # taskbar/window-arrangement handling.
+        super().__init__(None, QtCore.Qt.WindowType.Window)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.host = host
-        self.session = PlotSession()
+        self.dark_mode = palette_is_dark(self)
+        self.session = PlotSession(
+            PLOT_COLORS_DARK if self.dark_mode else PLOT_COLORS
+        )
         self.rows: list[CurveRow] = []
         self._rendered: list[tuple[object, object]] = []
         self._hover_entries: list[dict] = []
@@ -496,8 +526,8 @@ class PlotWindow(QtWidgets.QMainWindow):
 
         self.main_plot = pg.PlotWidget(central)
         self.overview_plot = pg.PlotWidget(central)
-        self._configure_plot(self.main_plot, show_y=True)
-        self._configure_plot(self.overview_plot, show_y=False)
+        self._configure_plot(self.main_plot, show_y=True, dark=self.dark_mode)
+        self._configure_plot(self.overview_plot, show_y=False, dark=self.dark_mode)
         self.overview_plot.setMinimumHeight(105)
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical, central)
         splitter.addWidget(self.main_plot)
@@ -517,8 +547,12 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.main_plot.scene().addItem(self.y2_view)
         self.main_item.showAxis("right")
         self.main_item.getAxis("right").linkToView(self.y2_view)
-        self.main_item.getAxis("right").setPen("#d62728")
-        self.main_item.getAxis("right").setTextPen("#d62728")
+        self.main_item.getAxis("right").setPen(
+            "#ff7180" if self.dark_mode else "#d62728"
+        )
+        self.main_item.getAxis("right").setTextPen(
+            "#ff7180" if self.dark_mode else "#d62728"
+        )
         self.y2_view.setXLink(self.main_view)
         self.y2_view.setMouseEnabled(x=False, y=True)
         self.y2_view.setVisible(False)
@@ -526,16 +560,11 @@ class PlotWindow(QtWidgets.QMainWindow):
         self._update_y2_geometry()
 
         self.legend = self.main_item.addLegend(offset=(10, 10))
-        self.crosshair = pg.InfiniteLine(
-            angle=90, movable=False, pen=pg.mkPen("#666666", width=1)
-        )
+        self.crosshair = pg.InfiniteLine(angle=90, movable=False)
         self.main_view.addItem(self.crosshair, ignoreBounds=True)
         self.crosshair.setVisible(False)
         self.hover_label = QtWidgets.QLabel(self.main_plot)
-        self.hover_label.setStyleSheet(
-            "background: rgba(255,255,255,225); color: #202124; "
-            "border: 1px solid #888; padding: 3px;"
-        )
+        self.hover_label.setStyleSheet("")
         self.hover_label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.hover_label.hide()
         self._mouse_proxy = pg.SignalProxy(
@@ -543,17 +572,23 @@ class PlotWindow(QtWidgets.QMainWindow):
             rateLimit=60,
             slot=self._mouse_moved,
         )
-        self.overview_region = pg.LinearRegionItem([0, 1], brush=(80, 120, 220, 55))
+        self.overview_region = pg.LinearRegionItem([0, 1])
         self.overview_region.setZValue(10)
         self.overview_plot.addItem(self.overview_region)
         self.overview_region.sigRegionChanged.connect(self._overview_region_changed)
         self.main_view.sigXRangeChanged.connect(self._main_x_range_changed)
 
+        self._apply_plot_theme()
         self.refresh_sources()
 
     @staticmethod
-    def _configure_plot(plot: pg.PlotWidget, *, show_y: bool) -> None:
-        plot.setBackground("#ffffff")
+    def _configure_plot(
+        plot: pg.PlotWidget, *, show_y: bool, dark: bool = False
+    ) -> None:
+        background = "#17181a" if dark else "#ffffff"
+        foreground = "#e8eaed" if dark else "#202124"
+        axis_color = "#aeb4bb" if dark else "#444444"
+        plot.setBackground(background)
         plot.showGrid(x=True, y=show_y, alpha=0.18)
         plot.hideButtons()
         pg_compat.set_menu_enabled(plot, False)
@@ -563,10 +598,60 @@ class PlotWindow(QtWidgets.QMainWindow):
         for axis_name in ("bottom", "left", "right"):
             try:
                 axis = plot.getAxis(axis_name)
-                axis.setPen("#444444")
-                axis.setTextPen("#202124")
+                axis.setPen(axis_color)
+                axis.setTextPen(foreground)
             except KeyError:
                 pass
+
+    def _apply_plot_theme(self) -> None:
+        """Update pyqtgraph's scene colors to follow TreeLab's palette."""
+        dark = self.dark_mode
+        foreground = "#e8eaed" if dark else "#202124"
+        axis_color = "#aeb4bb" if dark else "#444444"
+        right_axis_color = "#ff7180" if dark else "#d62728"
+        self._configure_plot(self.main_plot, show_y=True, dark=dark)
+        self._configure_plot(self.overview_plot, show_y=False, dark=dark)
+        for axis_name in ("bottom", "left", "right"):
+            axis = self.main_item.getAxis(axis_name)
+            axis.label.setDefaultTextColor(QtGui.QColor(foreground))
+        right_axis = self.main_item.getAxis("right")
+        right_axis.setPen(right_axis_color)
+        right_axis.setTextPen(right_axis_color)
+        self.crosshair.setPen(pg.mkPen(axis_color, width=1))
+        self.hover_label.setStyleSheet(
+            (
+                "background: rgba(43,45,48,240); color: #f1f3f4; "
+                "border: 1px solid #777c83; padding: 3px;"
+            )
+            if dark
+            else (
+                "background: rgba(255,255,255,225); color: #202124; "
+                "border: 1px solid #888; padding: 3px;"
+            )
+        )
+        self.overview_region.setBrush(
+            pg.mkBrush((90, 145, 220, 80) if dark else (80, 120, 220, 55))
+        )
+        try:
+            self.legend.setBrush(
+                pg.mkBrush("#2b2d30" if dark else "#ffffff")
+            )
+            self.legend.setPen(pg.mkPen("#777c83" if dark else "#cccccc"))
+            self.legend.setLabelTextColor(foreground)
+        except (AttributeError, TypeError):
+            pass
+
+    def apply_theme(self) -> None:
+        """Refresh this window after the host switches light/dark mode."""
+        app = QtWidgets.QApplication.instance()
+        dark = palette_is_dark(app or self)
+        self.dark_mode = dark
+        self.session.set_colors(PLOT_COLORS_DARK if dark else PLOT_COLORS)
+        self._apply_plot_theme()
+        for row in self.rows:
+            row._set_color_button()
+        if self.session.curves:
+            self.draw()
 
     def _update_y2_geometry(self) -> None:
         self.y2_view.setGeometry(self.main_view.sceneBoundingRect())
@@ -733,7 +818,9 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.draw()
 
     def clear_session(self) -> None:
-        self.session = PlotSession()
+        self.session = PlotSession(
+            PLOT_COLORS_DARK if self.dark_mode else PLOT_COLORS
+        )
         self._rebuild_rows()
         self._clear_rendered()
         self.status_label.clear()
@@ -833,11 +920,15 @@ class PlotWindow(QtWidgets.QMainWindow):
                 errors.append(f"Curve {index}: {error}")
 
         if not valid:
-            self.status_label.setStyleSheet("color: #b00020;")
+            self.status_label.setStyleSheet(
+                f"color: {'#ff8a9b' if self.dark_mode else '#b00020'};"
+            )
             self.status_label.setText("; ".join(errors) or "No curves configured")
             return
 
-        self.status_label.setStyleSheet("color: #202124;")
+        self.status_label.setStyleSheet(
+            f"color: {'#e8eaed' if self.dark_mode else '#202124'};"
+        )
         self.status_label.setText(
             f"{len(valid)} curve(s) drawn"
             + ("; " + "; ".join(errors) if errors else "")
@@ -859,7 +950,11 @@ class PlotWindow(QtWidgets.QMainWindow):
             pg_compat.set_clip_to_view(item)
             self._rendered.append((target, item))
             marker = pg.ScatterPlotItem(
-                size=10, brush=pg.mkBrush(color), pen=pg.mkPen("#202124", width=1)
+                size=10,
+                brush=pg.mkBrush(color),
+                pen=pg.mkPen(
+                    "#e8eaed" if self.dark_mode else "#202124", width=1
+                ),
             )
             marker.hide()
             target.addItem(marker)

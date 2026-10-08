@@ -41,6 +41,23 @@ def test_new_payload_accepts_documented_double_brace_reference_form():
     np.testing.assert_array_equal(result, np.array([5, 6]))
 
 
+def test_new_payload_resolves_direct_sibling_references():
+    values = {
+        "CoordinateX": np.array([1.0, 2.0, 3.0]),
+        "CoordinateY": np.array([1.0, 4.0, 2.0]),
+    }
+
+    def resolve(filename, path):
+        assert filename == ""
+        return values[path]
+
+    result = evaluate_payload_expression(
+        '"{CoordinateX}" / "{CoordinateY}"', resolve
+    )
+
+    np.testing.assert_allclose(result, np.array([1.0, 0.5, 1.5]))
+
+
 def test_new_payload_none_removes_payload():
     assert evaluate_payload_expression("None", lambda *_args: np.array([])) is None
 

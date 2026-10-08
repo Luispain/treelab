@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 
 class PayloadExpressionError(ValueError):
@@ -26,6 +26,11 @@ def _reference_parts(value: str) -> tuple[str, str] | None:
         if "@" in inner:
             filename, path = inner.split("@", 1)
             return filename, path
+        if inner:
+            # A one-part reference is resolved as a direct sibling of the
+            # node being edited.  An empty filename keeps the evaluator's
+            # resolver interface unchanged for full cross-tab references.
+            return "", inner
     return None
 
 
@@ -154,6 +159,8 @@ def evaluate_payload_expression(
 class NewPayloadDialog(QtWidgets.QDialog):
     """Large editor dialog for a new payload expression."""
 
+    _last_expression = ""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New payload")
@@ -164,6 +171,7 @@ class NewPayloadDialog(QtWidgets.QDialog):
             "Enter a NumPy expression. Existing payloads use "
             "{filename@path/without/root}; for example:\n"
             '"{file.cgns@Base/Zone/FlowSolution/CL}"[:, 2]\n'
+            "Use {SiblingName} for a direct sibling of the selected node.\n"
             "Use None to remove the current payload.",
             self,
         )
@@ -173,6 +181,9 @@ class NewPayloadDialog(QtWidgets.QDialog):
         self.editor = QtWidgets.QPlainTextEdit(self)
         self.editor.setPlaceholderText("np.linspace(0, 1, 11)")
         self.editor.setTabChangesFocus(False)
+        self.editor.setPlainText(type(self)._last_expression)
+        self.editor.textChanged.connect(self._remember_expression)
+        self.editor.installEventFilter(self)
         layout.addWidget(self.editor, 1)
 
         buttons = QtWidgets.QDialogButtonBox(
@@ -180,10 +191,43 @@ class NewPayloadDialog(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
-        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText("Set payload")
+        self.set_payload_button = buttons.button(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+        )
+        self.set_payload_button.setText("Set payload")
+        self.set_payload_button.setToolTip("Set payload (Shift+Enter)")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.set_payload_shortcut = QtGui.QShortcut(
+            QtGui.QKeySequence("Shift+Enter"), self
+        )
+        self.set_payload_shortcut.setContext(
+            QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.set_payload_shortcut.activated.connect(self.accept)
+
+    def _remember_expression(self) -> None:
+        type(self)._last_expression = self.editor.toPlainText()
+
+    def eventFilter(self, watched, event):
+        if watched is self.editor and event.type() == QtCore.QEvent.Type.KeyPress:
+            modifiers = event.modifiers()
+            shift_enter = (
+                event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter)
+                and modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier
+                and not modifiers & (
+                    QtCore.Qt.KeyboardModifier.ControlModifier
+                    | QtCore.Qt.KeyboardModifier.AltModifier
+                    | QtCore.Qt.KeyboardModifier.MetaModifier
+                )
+            )
+            if shift_enter:
+                self.accept()
+                return True
+        return super().eventFilter(watched, event)
+
     def expression(self) -> str:
-        return self.editor.toPlainText()
+        self._remember_expression()
+        return type(self)._last_expression

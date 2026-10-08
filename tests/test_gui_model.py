@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtTest import QTest
 
 from noder.core import Node
 import noder.core.io as noder_io
@@ -14,8 +15,15 @@ import noder.core.io as noder_io
 from treelab.gui.document import TreeDocument
 from treelab.gui.main import MainWindow
 from treelab.gui.model import NoderTreeModel
+from treelab.gui.new_payload import NewPayloadDialog
 from treelab.gui.payload import UNLOADED_MARKER
-from treelab.gui.style import apply_fixed_light_palette
+from treelab.gui.style import (
+    apply_fixed_dark_palette,
+    apply_fixed_light_palette,
+    apply_system_palette,
+    palette_is_dark,
+    system_prefers_dark,
+)
 
 
 @pytest.fixture(scope="session")
@@ -53,6 +61,30 @@ def test_fixed_light_palette_covers_native_state_groups(qapp):
     assert palette.color(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.ButtonText).name() == "#8a8a8a"
 
 
+def test_dark_palette_and_toolbar_theme_switcher(qapp):
+    apply_fixed_dark_palette(qapp)
+    assert palette_is_dark(qapp)
+    assert qapp.palette().color(QtGui.QPalette.ColorRole.Base).name() == "#17181a"
+    assert "QMenuBar" in qapp.styleSheet()
+
+    window = MainWindow([])
+    try:
+        assert window.action_toggle_theme.text() == "Switch to light mode"
+        window.toggle_theme()
+        assert not palette_is_dark(qapp)
+        assert window.action_toggle_theme.text() == "Switch to dark mode"
+    finally:
+        window.close()
+        apply_fixed_light_palette(qapp)
+
+
+def test_system_palette_follows_qt_color_scheme(qapp):
+    expected_dark = system_prefers_dark(qapp)
+    apply_system_palette(qapp)
+    assert palette_is_dark(qapp) is expected_dark
+    apply_fixed_light_palette(qapp)
+
+
 def test_open_file_tree_has_visible_model_rows(tmp_path, qapp):
     filename = tmp_path / "visible-tree.cgns"
     _tree(["Zone"]).write(str(filename))
@@ -74,8 +106,41 @@ def test_open_file_tree_has_visible_model_rows(tmp_path, qapp):
     assert toolbar.isMovable()
     assert toolbar.isFloatable()
     assert window.action_open.statusTip() == "Open (Ctrl+O)"
+    assert window.action_new_payload.shortcut().toString() == "Shift+Enter"
+    assert [shortcut.toString() for shortcut in window.action_new_payload.shortcuts()] == [
+        "Shift+Enter", "Shift+Return"
+    ]
+    assert window.action_new_payload.statusTip() == "New payload (Shift+Enter)"
     window.close()
     qapp.processEvents()
+
+
+def test_new_payload_shortcut_opens_dialog_from_tree(qapp, monkeypatch):
+    opened = []
+
+    class RejectedPayloadDialog:
+        def __init__(self, parent):
+            opened.append(parent)
+
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(
+        "treelab.gui.window.NewPayloadDialog", RejectedPayloadDialog
+    )
+    window = MainWindow([])
+    window.show()
+    tree = window.current_view().tree
+    tree.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(
+        tree,
+        QtCore.Qt.Key.Key_Return,
+        QtCore.Qt.KeyboardModifier.ShiftModifier,
+    )
+    qapp.processEvents()
+    assert opened == [window]
+    window.close()
 
 
 def test_safe_mode_shows_dialog_and_corrupted_marker(tmp_path, qapp, monkeypatch):
@@ -317,6 +382,65 @@ def test_new_payload_and_save_node_propagate_to_all_selected_nodes(tmp_path, qap
     assert saved.get_at_path("Second").numpy().tolist() == [4.0, 5.0]
     assert not window.current_document().dirty
     window.close()
+
+
+def test_new_payload_direct_sibling_references(qapp, monkeypatch):
+    window = MainWindow([])
+    root = window.current_document().root
+    for name, values in (
+        ("CoordinateX", [1.0, 2.0, 3.0]),
+        ("CoordinateY", [1.0, 4.0, 2.0]),
+        ("CoordinateZ", [0.0, 0.0, 0.0]),
+    ):
+        node = Node(name, "DataArray_t")
+        node.set_data(np.asarray(values))
+        root.add_child(node)
+    target = root.get_at_path("CoordinateZ")
+    window.show_node(target)
+
+    class AcceptedPayloadDialog:
+        def __init__(self, parent):
+            pass
+
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+        def expression(self):
+            return '"{CoordinateX}" / "{CoordinateY}"'
+
+    monkeypatch.setattr(
+        "treelab.gui.window.NewPayloadDialog", AcceptedPayloadDialog
+    )
+    window.new_payload()
+
+    np.testing.assert_allclose(target.numpy(), [1.0, 0.5, 1.5])
+    window.current_document().dirty = False
+    window.close()
+
+
+def test_new_payload_dialog_remembers_text_and_shift_enter(qapp):
+    previous = NewPayloadDialog._last_expression
+    try:
+        NewPayloadDialog._last_expression = ""
+        first = NewPayloadDialog()
+        first.editor.setPlainText("np.arange(3)")
+        first.reject()
+
+        second = NewPayloadDialog()
+        assert second.expression() == "np.arange(3)"
+        second.show()
+        second.editor.setFocus()
+        qapp.processEvents()
+        QTest.keyClick(
+            second.editor,
+            QtCore.Qt.Key.Key_Return,
+            QtCore.Qt.KeyboardModifier.ShiftModifier,
+        )
+        qapp.processEvents()
+        assert second.result() == QtWidgets.QDialog.DialogCode.Accepted
+        second.close()
+    finally:
+        NewPayloadDialog._last_expression = previous
 
 
 def test_rename_paths_suffix_duplicate_siblings_and_multi_edit(qapp, monkeypatch):
