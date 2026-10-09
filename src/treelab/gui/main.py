@@ -63,7 +63,7 @@ def launch(argv=None) -> int:
         full_load=args.full,
         safe_mode=args.safe_mode,
     )
-    window.show()
+    window.showMaximized()
     return app.exec()
 
 

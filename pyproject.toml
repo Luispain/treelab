@@ -31,7 +31,7 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.21.0",
-  "noder>=1.2.0",
+  "noder>=1.5.3",
   "pyqtgraph>=0.14.0; python_version >= '3.10'",
   "pyqtgraph>=0.13.2,<0.14.0; python_version < '3.10'",
   "pyside6; python_version >= '3.10'",

@@ -261,6 +261,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.full_load = full_load
         self.safe_mode = safe_mode
         self._safe_warning_documents = set()
+        self._loading_children = set()
         self.documents: list[TreeDocument] = []
         self.views: list[DocumentView] = []
         self.clipboard_nodes: list = []
@@ -575,6 +576,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.node_path_edit.setPlaceholderText("Select a node to copy its path")
         self.payload_info = QtWidgets.QLabel(panel)
         self.payload_info.setWordWrap(True)
+        self.siblings_info = QtWidgets.QLabel("Number of siblings: 0", panel)
         self.payload_table = QtWidgets.QTableWidget(panel)
         self.payload_table.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
@@ -616,6 +618,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dump_data_button = QtWidgets.QPushButton("Dump data", panel)
         self.new_payload_button = QtWidgets.QPushButton("New payload", panel)
         form.addRow("Path", self.node_path_edit)
+        form.addRow(self.siblings_info)
         form.addRow("Payload", self.payload_info)
         form.addRow("String view", mode_controls)
         form.addRow(self.payload_table)
@@ -710,6 +713,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _add_document(self, document: TreeDocument) -> None:
         view = DocumentView(document, self)
         view.selection_changed.connect(self.show_node)
+        view.tree.expanded.connect(
+            lambda index, view=view: self._load_remaining_children(view, index)
+        )
         document.changed.connect(self._document_changed)
         self.documents.append(document)
         self.views.append(view)
@@ -806,11 +812,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.dock.setWindowTitle("Node")
             self.node_path_edit.clear()
             self.payload_info.clear()
+            self.siblings_info.setText("Number of siblings: 0")
             self._update_save_node_state()
             self._refresh_payload_table()
             return
         self.dock.setWindowTitle(node.path())
         self.node_path_edit.setText(self._node_path_without_root(node))
+        self._update_sibling_info(node)
         self._update_save_node_state()
         try:
             if not node.has_data():
@@ -820,6 +828,26 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as error:
             self.payload_info.setText(f"Payload unavailable: {error}")
         self._refresh_payload_table()
+
+    def _update_sibling_info(self, node) -> None:
+        if node is None:
+            self.siblings_info.setText("Number of siblings: 0")
+            return
+        try:
+            parent = node.parent()
+            if parent is None:
+                sibling_count = 0
+            else:
+                hidden_children = sum(
+                    child.name() == "CGNSLibraryVersion"
+                    for child in parent.loaded_children()
+                )
+                sibling_count = max(
+                    0, parent.child_count() - hidden_children - 1
+                )
+            self.siblings_info.setText(f"Number of siblings: {sibling_count}")
+        except Exception:
+            self.siblings_info.setText("Number of siblings: unavailable")
 
     def _resolve_payload_reference(
         self, filename: str, path: str, *, relative_to=None
@@ -1171,6 +1199,32 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
         return progress
 
+    def _load_remaining_children(self, view: DocumentView, index: QtCore.QModelIndex) -> None:
+        """Load later child pages after a branch is unfolded, with progress feedback."""
+        model = view.document.model
+        node = model.node(index)
+        if node is None or node in self._loading_children or not model.canFetchMore(index):
+            return
+
+        self._loading_children.add(node)
+        progress = self._progress(
+            "Loading children", f"Loading children of {node.name()}…"
+        )
+        progress.setRange(0, max(1, node.child_count()))
+        progress.setValue(model.rowCount(index))
+        try:
+            while model.canFetchMore(index) and not progress.wasCanceled():
+                model.fetchMore(index)
+                progress.setValue(model.rowCount(index))
+                QtWidgets.QApplication.processEvents()
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(
+                self, "Loading children failed", str(error)
+            )
+        finally:
+            progress.close()
+            self._loading_children.discard(node)
+
     @staticmethod
     def _walk_nodes(nodes, recursive: bool):
         seen = set()
@@ -1332,7 +1386,7 @@ class MainWindow(QtWidgets.QMainWindow):
             expression = "/ " + expression
         try:
             self.search_expression = expression
-            self.search_results = document.root.pick().all_by_predicate(expression)
+            self.search_results = self._find_nodes_by_predicate(document, expression)
             if not self.search_results:
                 self.search_index = -1
                 self.statusBar().showMessage(f"No match for {expression}")
@@ -1343,12 +1397,25 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as error:
             QtWidgets.QMessageBox.warning(self, "Search failed", str(error))
 
+    def _find_nodes_by_predicate(self, document: TreeDocument, expression: str) -> list:
+        progress = self._progress("Search tree", f"Searching for {expression}…")
+        progress.setCancelButton(None)
+        try:
+            return document.root.pick().all_by_predicate(expression)
+        finally:
+            progress.close()
+
     def navigate_search(self, step: int) -> None:
         if not self.search_results:
             if self.search_expression:
                 try:
                     document = self.current_document()
-                    self.search_results = document.root.pick().all_by_predicate(self.search_expression)
+                    if document is None:
+                        self.search_results = []
+                    else:
+                        self.search_results = self._find_nodes_by_predicate(
+                            document, self.search_expression
+                        )
                 except Exception:
                     self.search_results = []
             if not self.search_results:
@@ -1606,7 +1673,7 @@ class MainWindow(QtWidgets.QMainWindow):
         node.ensure_children_loaded()
         if node.has_data():
             node.data()
-        for child in node.loaded_children():
+        for child in node.children():
             MainWindow._materialise_node(child)
 
     def _read_links_operation(self, recursive: bool) -> None:
@@ -1618,6 +1685,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         progress = self._progress("Read links", "Reading linked nodes…")
         count = 0
+        read_nodes = []
         document.model.beginResetModel()
         try:
             for node in self._walk_nodes(nodes, recursive):
@@ -1626,12 +1694,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 if node.has_link_target():
                     self._read_link(document, node)
                     count += 1
+                    read_nodes.append(node)
                 QtWidgets.QApplication.processEvents()
         except Exception as error:
             QtWidgets.QMessageBox.warning(self, "Read link failed", str(error))
         finally:
             document.model.endResetModel()
             progress.close()
+        view = self.current_view()
+        if view is not None and view.document is document:
+            for node in read_nodes:
+                index = document.model.index_for_node(node)
+                if index.isValid():
+                    view.tree.expand(index)
         if count:
             document.mark_changed(full=True)
         self.statusBar().showMessage(f"Read {count} link(s)")
@@ -1656,6 +1731,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _document_changed(self) -> None:
         self.apply_current_tab_title()
+        self._update_sibling_info(self._selected_node)
         self._update_save_node_state()
         if self.plot_window is not None:
             self.plot_window.refresh_sources(redraw=self.plot_window.isVisible())

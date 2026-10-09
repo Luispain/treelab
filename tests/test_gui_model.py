@@ -220,7 +220,16 @@ def test_search_selects_all_matches_and_f3_only_moves_focus(tmp_path, qapp, monk
         staticmethod(lambda *args, **kwargs: ("/ t:Zone_t", True)),
     )
     window = MainWindow([str(filename)])
+    progress_titles = []
+    original_progress = window._progress
+
+    def tracked_progress(title, label):
+        progress_titles.append(title)
+        return original_progress(title, label)
+
+    monkeypatch.setattr(window, "_progress", tracked_progress)
     window.search_nodes()
+    assert "Search tree" in progress_titles
     tree = window.current_view().tree
     assert [node.name() for node in tree.selected_nodes()] == ["Zone0", "Zone1", "Zone2"]
     window.navigate_search(1)
@@ -621,6 +630,114 @@ def test_payload_table_shows_loaded_values(qapp):
     window.show_node(payload)
     assert window.payload_table.item(0, 0).text() == "0"
     assert window.payload_table.item(1, 2).text() == "5"
+    window.close()
+
+
+def test_payload_view_shows_sibling_count(qapp):
+    window = MainWindow([])
+    nodes = [Node(name, "UserDefinedData_t") for name in ("One", "Two", "Three")]
+    for node in nodes:
+        window.current_document().root.add_child(node)
+
+    window.show_node(nodes[1])
+
+    assert window.siblings_info.text() == "Number of siblings: 2"
+    window.close()
+
+
+def test_root_level_sibling_count_excludes_hidden_library_version(tmp_path, qapp):
+    filename = tmp_path / "root-siblings.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    root.add_child(Node("BaseA", "CGNSBase_t"))
+    root.add_child(Node("BaseB", "CGNSBase_t"))
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    document = window.current_document()
+    window.show_node(document.root.get_at_path("BaseA"))
+
+    assert window.siblings_info.text() == "Number of siblings: 1"
+    document.dirty = False
+    window.close()
+
+
+def test_expanding_large_branch_shows_progress_and_loads_all_children(
+    tmp_path, qapp
+):
+    filename = tmp_path / "large-branch.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    branch = Node("Branch", "UserDefinedData_t")
+    for index in range(300):
+        branch.add_child(Node(f"Child{index}", "UserDefinedData_t"))
+    root.add_child(branch)
+    root.write(str(filename))
+    window = MainWindow([str(filename)])
+    document = window.current_document()
+    tree = window.current_view().tree
+    branch_index = document.model.index_for_node(document.root.get_at_path("Branch"))
+    assert document.model.canFetchMore(branch_index)
+    progress_titles = []
+    original_progress = window._progress
+
+    def tracked_progress(title, label):
+        progress_titles.append(title)
+        return original_progress(title, label)
+
+    window._progress = tracked_progress
+    tree.expand(branch_index)
+    qapp.processEvents()
+
+    assert "Loading children" in progress_titles
+    assert document.model.rowCount(branch_index) == 300
+    assert document.root.get_at_path("Branch").children_load_state() == "complete"
+    window.close()
+
+
+def test_read_link_expands_and_displays_recursively_copied_children(
+    tmp_path, qapp
+):
+    target_filename = tmp_path / "link-target.cgns"
+    source_filename = tmp_path / "link-source.cgns"
+    target_root = Node("CGNSTree", "CGNSTree_t")
+    target = Node("Ap", "UserDefinedData_t")
+    child = Node("Child", "UserDefinedData_t")
+    grandchild = Node("Grandchild", "DataArray_t")
+    grandchild.set_data(np.array([4.0, 5.0]))
+    child.add_child(grandchild)
+    target.add_child(child)
+    target_root.add_child(target)
+    target_root.write(str(target_filename))
+
+    source_root = Node("CGNSTree", "CGNSTree_t")
+    link = Node("A", "Link_t")
+    link.set_link_target(str(target_filename), "/CGNSTree/Ap")
+    source_root.add_child(link)
+    source_root.write(str(source_filename))
+
+    window = MainWindow([str(source_filename)])
+    document = window.current_document()
+    tree = window.current_view().tree
+    root_index = document.model.index(0, 0)
+    link_index = document.model.index(0, 0, root_index)
+    tree.selectionModel().select(
+        link_index,
+        QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QtCore.QItemSelectionModel.SelectionFlag.Rows,
+    )
+
+    window.read_current_links()
+
+    loaded = document.root.get_at_path("A")
+    assert not loaded.has_link_target()
+    loaded_child = loaded.children()[0]
+    assert loaded_child.name() == "Child"
+    loaded_grandchild = loaded_child.children()[0]
+    assert loaded_grandchild.name() == "Grandchild"
+    assert loaded_grandchild.numpy().tolist() == [4.0, 5.0]
+    loaded_index = document.model.index_for_node(loaded)
+    assert tree.isExpanded(loaded_index)
+    assert document.model.rowCount(loaded_index) == 1
+    document.dirty = False
     window.close()
 
 

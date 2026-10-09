@@ -12,6 +12,7 @@ from noder.core import Node
 
 from treelab.gui.document import TreeDocument
 from treelab.gui.plotter import (
+    AxisScaleDialog,
     PlotSession,
     PlotWindow,
     expand_matching_axes,
@@ -122,6 +123,7 @@ def test_plot_window_draws_multiple_curves_and_secondary_axis(qapp):
     plot.plot_selected(document, [x, y1, y2])
     qapp.processEvents()
 
+    assert not plot.action_axis_settings.icon().isNull()
     assert len(plot.session.curves) == 2
     assert len(plot._hover_entries) == 2
     assert plot.status_label.text().startswith("2 curve(s) drawn")
@@ -136,6 +138,41 @@ def test_plot_window_draws_multiple_curves_and_secondary_axis(qapp):
     assert plot.y2_view.isVisible()
     assert plot.main_item.getAxis("right").isVisible()
 
+    plot.shutdown()
+    window.close()
+    qapp.processEvents()
+
+
+def test_plot_axis_settings_apply_independent_log_modes(qapp):
+    window = MainWindow()
+    document = window.current_document()
+    x = _node("Iteration", [1, 10, 100])
+    y1 = _node("Lift", [1, 10, 100])
+    y2 = _node("Drag", [1000, 100, 10])
+    for node in (x, y1, y2):
+        document.root.add_child(node)
+
+    plot = PlotWindow(window, window)
+    plot.plot_selected(document, [x, y1, y2])
+    plot.session.curves[1].axis = 1
+    plot.set_axis_modes(x=True, y1=True, y2=False)
+    qapp.processEvents()
+
+    assert plot.main_item.getAxis("bottom").logMode is True
+    assert plot.main_item.getAxis("left").logMode is True
+    assert plot.main_item.getAxis("right").logMode is False
+    assert plot._hover_entries[0]["item"].opts["logMode"] == [True, True]
+    assert plot._hover_entries[1]["item"].opts["logMode"] == [True, False]
+    assert plot.main_view.viewRange()[0][1] > 2.0
+    plot.set_axis_modes(x=False, y1=False, y2=True)
+    assert plot.main_item.getAxis("bottom").logMode is False
+    assert plot.main_item.getAxis("left").logMode is False
+    assert plot.main_item.getAxis("right").logMode is True
+    assert plot._hover_entries[1]["item"].opts["logMode"] == [False, True]
+
+    dialog = AxisScaleDialog(x_log=True, y1_log=False, y2_log=True)
+    assert dialog.axis_modes() == {"x": True, "y1": False, "y2": True}
+    dialog.close()
     plot.shutdown()
     window.close()
     qapp.processEvents()

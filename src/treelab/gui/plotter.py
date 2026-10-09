@@ -456,6 +456,46 @@ class CurveRow(QtWidgets.QWidget):
             self.changed.emit()
 
 
+class AxisScaleDialog(QtWidgets.QDialog):
+    """Choose linear or logarithmic scales for the three plot axes."""
+
+    def __init__(self, *, x_log: bool, y1_log: bool, y2_log: bool, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Axis settings")
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+        self.x_mode = self._mode_combo(x_log)
+        self.y1_mode = self._mode_combo(y1_log)
+        self.y2_mode = self._mode_combo(y2_log)
+        form.addRow("X axis", self.x_mode)
+        form.addRow("Y1 axis", self.y1_mode)
+        form.addRow("Y2 axis", self.y2_mode)
+        layout.addLayout(form)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @staticmethod
+    def _mode_combo(logarithmic: bool) -> QtWidgets.QComboBox:
+        combo = QtWidgets.QComboBox()
+        combo.addItem("Linear", False)
+        combo.addItem("Log-scale", True)
+        combo.setCurrentIndex(combo.findData(bool(logarithmic)))
+        return combo
+
+    def axis_modes(self) -> dict[str, bool]:
+        return {
+            "x": bool(self.x_mode.currentData()),
+            "y1": bool(self.y1_mode.currentData()),
+            "y2": bool(self.y2_mode.currentData()),
+        }
+
+
 class PlotWindow(QtWidgets.QMainWindow):
     """Cross-tab curve editor and fast interactive plot."""
 
@@ -476,6 +516,9 @@ class PlotWindow(QtWidgets.QMainWindow):
         self._hover_entries: list[dict] = []
         self._allow_close = False
         self._updating_region = False
+        self.log_x = False
+        self.log_y1 = False
+        self.log_y2 = False
         self.setWindowTitle("TreeLab plots")
         self.resize(1120, 760)
         self._make_ui()
@@ -506,6 +549,13 @@ class PlotWindow(QtWidgets.QMainWindow):
         action_clear = QtGui.QAction("Clear", self)
         action_clear.triggered.connect(self.clear_session)
         toolbar.addAction(action_clear)
+        toolbar.addSeparator()
+        self.action_axis_settings = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/gear.png"), "Axis settings", self
+        )
+        self.action_axis_settings.setToolTip("Set X, Y1, and Y2 axis scales")
+        self.action_axis_settings.triggered.connect(self.open_axis_settings)
+        toolbar.addAction(self.action_axis_settings)
 
         central = QtWidgets.QWidget(self)
         root_layout = QtWidgets.QVBoxLayout(central)
@@ -558,6 +608,7 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.y2_view.setVisible(False)
         self.main_view.sigResized.connect(self._update_y2_geometry)
         self._update_y2_geometry()
+        self._apply_axis_modes()
 
         self.legend = self.main_item.addLegend(offset=(10, 10))
         self.crosshair = pg.InfiniteLine(angle=90, movable=False)
@@ -600,6 +651,10 @@ class PlotWindow(QtWidgets.QMainWindow):
                 axis = plot.getAxis(axis_name)
                 axis.setPen(axis_color)
                 axis.setTextPen(foreground)
+                try:
+                    axis.enableAutoSIPrefix(False)
+                except AttributeError:
+                    pass
             except KeyError:
                 pass
 
@@ -640,6 +695,35 @@ class PlotWindow(QtWidgets.QMainWindow):
             self.legend.setLabelTextColor(foreground)
         except (AttributeError, TypeError):
             pass
+
+    def _apply_axis_modes(self) -> None:
+        """Set axis ticks and view bounds for the independently scaled axes."""
+        self.main_item.getAxis("bottom").setLogMode(x=self.log_x)
+        self.main_item.getAxis("left").setLogMode(y=self.log_y1)
+        self.main_item.getAxis("right").setLogMode(y=self.log_y2)
+        self.overview_plot.getPlotItem().getAxis("bottom").setLogMode(
+            x=self.log_x
+        )
+
+    def set_axis_modes(self, *, x: bool, y1: bool, y2: bool) -> None:
+        """Apply the selected linear or logarithmic mode to each plot axis."""
+        self.log_x = bool(x)
+        self.log_y1 = bool(y1)
+        self.log_y2 = bool(y2)
+        self._apply_axis_modes()
+        self.draw()
+
+    def open_axis_settings(self) -> None:
+        dialog = AxisScaleDialog(
+            x_log=self.log_x,
+            y1_log=self.log_y1,
+            y2_log=self.log_y2,
+            parent=self,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        modes = dialog.axis_modes()
+        self.set_axis_modes(**modes)
 
     def apply_theme(self) -> None:
         """Refresh this window after the host switches light/dark mode."""
@@ -947,6 +1031,10 @@ class PlotWindow(QtWidgets.QMainWindow):
             self._set_downsampling(item)
             item.setVisible(curve.visible)
             target.addItem(item)
+            item.setLogMode(
+                self.log_x,
+                self.log_y2 if curve.axis else self.log_y1,
+            )
             pg_compat.set_clip_to_view(item)
             self._rendered.append((target, item))
             marker = pg.ScatterPlotItem(
@@ -963,6 +1051,10 @@ class PlotWindow(QtWidgets.QMainWindow):
                 "curve": curve,
                 "x": x,
                 "y": y,
+                "plot_x": self._log_coordinates(x, self.log_x),
+                "plot_y": self._log_coordinates(
+                    y, self.log_y2 if curve.axis else self.log_y1
+                ),
                 "label": ylabel,
                 "color": rendered_color,
                 "item": item,
@@ -974,10 +1066,12 @@ class PlotWindow(QtWidgets.QMainWindow):
             self._set_downsampling(overview_item, overview=True)
             overview_item.setVisible(curve.visible)
             self.overview_plot.addItem(overview_item)
+            overview_item.setLogMode(self.log_x, False)
             pg_compat.set_clip_to_view(overview_item)
             self._rendered.append((self.overview_plot.getPlotItem(), overview_item))
             overview_items.append(overview_item)
-            x_values.append(x[np.isfinite(x)])
+            plot_x = self._log_coordinates(x, self.log_x)
+            x_values.append(plot_x[np.isfinite(plot_x)])
             (y2_labels if curve.axis else y1_labels).append(axis_label)
 
         has_y2 = any(curve.axis for curve, *_ in valid)
@@ -993,7 +1087,15 @@ class PlotWindow(QtWidgets.QMainWindow):
         for entry in self._hover_entries:
             self.legend.addItem(entry["item"], entry["label"])
 
-        finite_x = np.concatenate([values for values in x_values if values.size])
+        finite_x_values = [values for values in x_values if values.size]
+        if not finite_x_values:
+            self.status_label.setText(
+                "No positive X values are available for logarithmic scaling"
+                if self.log_x
+                else "No finite X values are available to plot"
+            )
+            return
+        finite_x = np.concatenate(finite_x_values)
         x_min, x_max = float(np.min(finite_x)), float(np.max(finite_x))
         if x_min == x_max:
             x_min -= 0.5
@@ -1004,6 +1106,17 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.overview_plot.getPlotItem().enableAutoRange()
         self.overview_plot.getPlotItem().setXRange(x_min, x_max, padding=0.02)
         self._set_region((x_min, x_max))
+
+    @staticmethod
+    def _log_coordinates(values: np.ndarray, enabled: bool) -> np.ndarray:
+        values = np.asarray(values)
+        if not enabled:
+            return values
+        numeric = np.asarray(values, dtype=float)
+        result = np.full(numeric.shape, np.nan, dtype=float)
+        valid = np.isfinite(numeric) & (numeric > 0)
+        result[valid] = np.log10(numeric[valid])
+        return result
 
     def _set_region(self, region: tuple[float, float]) -> None:
         self._updating_region = True
@@ -1062,17 +1175,21 @@ class PlotWindow(QtWidgets.QMainWindow):
             if not curve.visible:
                 marker.hide()
                 continue
-            index = self._nearest_index(entry["x"], entry["y"], x_position)
+            index = self._nearest_index(entry["plot_x"], entry["plot_y"], x_position)
             if index is None:
                 marker.hide()
                 continue
-            x_value = float(entry["x"][index])
             y_value = float(entry["y"][index])
-            marker.setData([x_value], [y_value])
+            marker.setData(
+                [entry["plot_x"][index]], [entry["plot_y"][index]]
+            )
             marker.show()
             lines.append(f"{entry['label']}={_format_value(y_value)}")
         if lines:
-            self.hover_label.setText(f"X={_format_value(x_position)}\n" + "\n".join(lines))
+            displayed_x = 10 ** x_position if self.log_x else x_position
+            self.hover_label.setText(
+                f"X={_format_value(displayed_x)}\n" + "\n".join(lines)
+            )
             self.hover_label.adjustSize()
             self.hover_label.move(8, 8)
             self.hover_label.show()
