@@ -41,9 +41,11 @@ def _tree(children):
 
 
 def _base(document):
-    root_index = document.model.index(0, 0)
-    base = next(child for child in document.root.loaded_children() if child.name() != "CGNSLibraryVersion")
-    return base, document.model.index(0, 0, root_index)
+    base = next(
+        child for child in document.root.loaded_children()
+        if child.type() == "CGNSBase_t"
+    )
+    return base, document.model.index_for_node(base)
 
 
 def _names(filename):
@@ -97,7 +99,11 @@ def test_open_file_tree_has_visible_model_rows(tmp_path, qapp):
     tree = window.current_view().tree
     root_index = tree.model().index(0, 0)
 
-    assert tree.model().rowCount(root_index) == 1
+    assert tree.model().rowCount(root_index) == 2
+    assert [
+        tree.model().data(tree.model().index(row, 0, root_index))
+        for row in range(tree.model().rowCount(root_index))
+    ] == ["CGNSLibraryVersion", "Base"]
     assert tree.visualRect(root_index).height() > 0
     assert tree.selected_nodes() == [tree.model().node(root_index)]
     assert tree.hasFocus()
@@ -252,9 +258,12 @@ def test_paste_keeps_duplicate_names_by_suffixing(tmp_path, qapp):
 
     window = MainWindow([str(filename)])
     tree = window.current_view().tree
-    root_index = tree.model().index(0, 0)
-    source_index = tree.model().index(1, 0, root_index)
-    target_index = tree.model().index(0, 0, root_index)
+    source_index = tree.model().index_for_node(
+        window.current_document().root.get_at_path("Source")
+    )
+    target_index = tree.model().index_for_node(
+        window.current_document().root.get_at_path("Target")
+    )
     tree.model().fetchMore(source_index)
     source_child_index = tree.model().index(0, 0, source_index)
     selection = tree.selectionModel()
@@ -310,8 +319,9 @@ def test_save_node_button_handles_name_and_type_edits(tmp_path, qapp):
     window = MainWindow([str(filename)])
     document = window.current_document()
     tree = window.current_view().tree
-    root_index = tree.model().index(0, 0)
-    node_index = tree.model().index(0, 0, root_index)
+    node_index = tree.model().index_for_node(
+        document.root.get_at_path("Value")
+    )
     tree.selectionModel().select(
         node_index,
         QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
@@ -352,9 +362,12 @@ def test_new_payload_and_save_node_propagate_to_all_selected_nodes(tmp_path, qap
 
     window = MainWindow([str(filename)])
     tree = window.current_view().tree
-    root_index = tree.model().index(0, 0)
-    first = tree.model().index(0, 0, root_index)
-    second = tree.model().index(1, 0, root_index)
+    first = tree.model().index_for_node(
+        window.current_document().root.get_at_path("First")
+    )
+    second = tree.model().index_for_node(
+        window.current_document().root.get_at_path("Second")
+    )
     selection = tree.selectionModel()
     selection.clearSelection()
     selection.select(
@@ -645,7 +658,7 @@ def test_payload_view_shows_sibling_count(qapp):
     window.close()
 
 
-def test_root_level_sibling_count_excludes_hidden_library_version(tmp_path, qapp):
+def test_cgns_library_version_is_visible_and_counted_as_sibling(tmp_path, qapp):
     filename = tmp_path / "root-siblings.cgns"
     root = Node("CGNSTree", "CGNSTree_t")
     root.add_child(Node("BaseA", "CGNSBase_t"))
@@ -656,7 +669,13 @@ def test_root_level_sibling_count_excludes_hidden_library_version(tmp_path, qapp
     document = window.current_document()
     window.show_node(document.root.get_at_path("BaseA"))
 
-    assert window.siblings_info.text() == "Number of siblings: 1"
+    root_index = document.model.index(0, 0)
+    root_names = [
+        document.model.data(document.model.index(row, 0, root_index))
+        for row in range(document.model.rowCount(root_index))
+    ]
+    assert root_names == ["CGNSLibraryVersion", "BaseA", "BaseB"]
+    assert window.siblings_info.text() == "Number of siblings: 2"
     document.dirty = False
     window.close()
 
@@ -693,8 +712,9 @@ def test_expanding_large_branch_shows_progress_and_loads_all_children(
     window.close()
 
 
-def test_read_link_expands_and_displays_recursively_copied_children(
-    tmp_path, qapp
+@pytest.mark.parametrize("full_load", [False, True])
+def test_read_link_expands_children_and_obeys_payload_loading_mode(
+    tmp_path, qapp, full_load
 ):
     target_filename = tmp_path / "link-target.cgns"
     source_filename = tmp_path / "link-source.cgns"
@@ -714,11 +734,12 @@ def test_read_link_expands_and_displays_recursively_copied_children(
     source_root.add_child(link)
     source_root.write(str(source_filename))
 
-    window = MainWindow([str(source_filename)])
+    window = MainWindow([str(source_filename)], full_load=full_load)
     document = window.current_document()
     tree = window.current_view().tree
-    root_index = document.model.index(0, 0)
-    link_index = document.model.index(0, 0, root_index)
+    link_index = document.model.index_for_node(
+        document.root.get_at_path("A")
+    )
     tree.selectionModel().select(
         link_index,
         QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect
@@ -733,10 +754,57 @@ def test_read_link_expands_and_displays_recursively_copied_children(
     assert loaded_child.name() == "Child"
     loaded_grandchild = loaded_child.children()[0]
     assert loaded_grandchild.name() == "Grandchild"
-    assert loaded_grandchild.numpy().tolist() == [4.0, 5.0]
+    assert loaded_grandchild.has_data()
+    assert loaded_grandchild.data_is_loaded() is full_load
     loaded_index = document.model.index_for_node(loaded)
+    assert document.model.hasChildren(loaded_index)
     assert tree.isExpanded(loaded_index)
     assert document.model.rowCount(loaded_index) == 1
+    if not full_load:
+        assert len(document._linked_readers) == 1
+        window._select_nodes([loaded_grandchild], focus=loaded_grandchild)
+        window.load_current_data()
+        assert loaded_grandchild.data_is_loaded()
+        document.save()
+        assert document._linked_readers == []
+        saved_node = noder_io.read(str(source_filename)).get_at_path("A")
+        assert not saved_node.has_link_target()
+        saved_grandchild = saved_node.children()[0].children()[0]
+        assert saved_grandchild.numpy().tolist() == [4.0, 5.0]
+    assert loaded_grandchild.numpy().tolist() == [4.0, 5.0]
+    document.dirty = False
+    window.close()
+
+
+def test_read_link_keeps_target_payload_lazy_until_f5(tmp_path, qapp):
+    target_filename = tmp_path / "payload-link-target.cgns"
+    source_filename = tmp_path / "payload-link-source.cgns"
+    target_root = Node("CGNSTree", "CGNSTree_t")
+    target = Node("Value", "DataArray_t")
+    target.set_data(np.array([1.0, 2.0, 3.0]))
+    target_root.add_child(target)
+    target_root.write(str(target_filename))
+
+    source_root = Node("CGNSTree", "CGNSTree_t")
+    link = Node("A", "Link_t")
+    link.set_link_target(str(target_filename), "/CGNSTree/Value")
+    source_root.add_child(link)
+    source_root.write(str(source_filename))
+
+    window = MainWindow([str(source_filename)])
+    document = window.current_document()
+    linked_node = document.root.get_at_path("A")
+    window._select_nodes([linked_node], focus=linked_node)
+    window.read_current_links()
+
+    imported = document.root.get_at_path("A")
+    assert imported.type() == "DataArray_t"
+    assert imported.has_data()
+    assert not imported.data_is_loaded()
+    window._select_nodes([imported], focus=imported)
+    window.load_current_data()
+    assert imported.numpy().tolist() == [1.0, 2.0, 3.0]
+
     document.dirty = False
     window.close()
 
@@ -829,8 +897,7 @@ def test_lazy_payload_marker_does_not_load_data(tmp_path, qapp):
     root.write(str(filename))
 
     document = TreeDocument(str(filename), parent=qapp)
-    root_index = document.model.index(0, 0)
-    base_index = document.model.index(0, 0, root_index)
+    base_index = document.model.index_for_node(document.root.get_at_path("Base"))
     document.model.fetchMore(base_index)
     zone_index = document.model.index(0, 0, base_index)
     document.model.fetchMore(zone_index)

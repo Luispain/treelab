@@ -61,6 +61,8 @@ def _node_icon(node) -> QtGui.QIcon:
         return _icon("fugue-icons-3.5.6/tree-red.png")
     if node.parent() is None or node_type == "CGNSTree_t":
         return _icon("fugue-icons-3.5.6/tree.png")
+    if node_type == "CGNSLibraryVersion_t":
+        return _icon("CGNS_logo_nobckgrnd.svg")
     if node_type == "CGNSBase_t":
         return _icon("icons8/icons8-box-32.png")
     if node_type == "Zone_t":
@@ -102,8 +104,7 @@ def _node_icon(node) -> QtGui.QIcon:
 def _node_children(node, *, loaded_only: bool = True) -> list:
     if node is None:
         return []
-    children = node.loaded_children() if loaded_only else node.children()
-    return [child for child in children if child.name() != "CGNSLibraryVersion"]
+    return node.loaded_children() if loaded_only else node.children()
 
 
 def unique_sibling_name(parent, requested_name: str, *, exclude=None) -> str:
@@ -312,7 +313,9 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         if not parent.isValid():
             return True
         node = self._node(parent)
-        return node is not None and node.child_count() > 0
+        return node is not None and (
+            node.child_count() > 0 or bool(self._visible_loaded_children(node))
+        )
 
     def canFetchMore(self, parent):
         if not parent.isValid():

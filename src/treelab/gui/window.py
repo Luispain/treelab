@@ -838,12 +838,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if parent is None:
                 sibling_count = 0
             else:
-                hidden_children = sum(
-                    child.name() == "CGNSLibraryVersion"
-                    for child in parent.loaded_children()
+                child_count = max(
+                    parent.child_count(), len(parent.loaded_children())
                 )
                 sibling_count = max(
-                    0, parent.child_count() - hidden_children - 1
+                    0, child_count - 1
                 )
             self.siblings_info.setText(f"Number of siblings: {sibling_count}")
         except Exception:
@@ -1633,9 +1632,9 @@ class MainWindow(QtWidgets.QMainWindow):
             document.model.endResetModel()
         document.mark_changed(full=True)
 
-    def _read_link(self, document: TreeDocument, node) -> None:
+    def _read_link(self, document: TreeDocument, node):
         if not node.has_link_target():
-            return
+            return node
         target_file = node.link_target_file()
         if target_file:
             link_file = Path(target_file)
@@ -1646,35 +1645,52 @@ class MainWindow(QtWidgets.QMainWindow):
             target_filename = document.filename
         if not target_filename:
             raise ValueError(f"No source file is available for link {node.path()}")
-        reader = noder_io.LazyHdf5Reader(target_filename)
+        reader = noder_io.LazyHdf5Reader(
+            target_filename, safe_mode=document.safe_mode
+        )
         try:
             target_root = reader.root()
             target_path = node.link_target_path()
             target = target_root.get_at_path(target_path)
             if target is None:
                 raise ValueError(f"Link target does not exist: {target_filename}:{target_path}")
-            self._materialise_node(target)
+            self._prepare_link_target(target, load_payload=self.full_load)
             parent = node.parent()
             if parent is None:
                 raise ValueError("Cannot read a detached link node")
-            children = list(node.children())
-            for child in children:
-                child.detach()
-            node.clear_link_target()
-            node.set_type(target.type())
-            node.set_data(target.numpy() if target.has_data() else None)
-            for child in target.children():
-                node.add_child(child.copy(deep=True), override_sibling_by_name=False)
+            try:
+                position = parent.loaded_children().index(node)
+            except ValueError:
+                position = -1
+            link_name = node.name()
+            target.detach()
+            node.detach()
+            target.set_name(link_name)
+            target.attach_to(
+                parent,
+                position=position,
+                override_sibling_by_name=False,
+            )
+            if self.full_load:
+                reader.close()
+            else:
+                document.retain_link_reader(reader)
+            reader = None
+            return target
         finally:
-            reader.close()
+            if reader is not None:
+                reader.close()
 
     @staticmethod
-    def _materialise_node(node) -> None:
+    def _prepare_link_target(node, *, load_payload: bool) -> None:
+        """Load linked tree metadata and optionally materialize its payloads."""
         node.ensure_children_loaded()
-        if node.has_data():
+        if load_payload and node.has_data():
             node.data()
         for child in node.children():
-            MainWindow._materialise_node(child)
+            MainWindow._prepare_link_target(
+                child, load_payload=load_payload
+            )
 
     def _read_links_operation(self, recursive: bool) -> None:
         if self.read_only:
@@ -1688,13 +1704,22 @@ class MainWindow(QtWidgets.QMainWindow):
         read_nodes = []
         document.model.beginResetModel()
         try:
-            for node in self._walk_nodes(nodes, recursive):
+            pending = list(reversed(nodes))
+            seen = set()
+            while pending:
                 if progress.wasCanceled():
                     break
+                node = pending.pop()
+                if node in seen:
+                    continue
+                seen.add(node)
                 if node.has_link_target():
-                    self._read_link(document, node)
+                    node = self._read_link(document, node)
                     count += 1
                     read_nodes.append(node)
+                if recursive:
+                    node.ensure_children_loaded()
+                    pending.extend(reversed(node.children()))
                 QtWidgets.QApplication.processEvents()
         except Exception as error:
             QtWidgets.QMessageBox.warning(self, "Read link failed", str(error))

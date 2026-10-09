@@ -31,6 +31,7 @@ class TreeDocument(QtCore.QObject):
         self.read_only = read_only
         self.safe_mode = safe_mode
         self.reader = None
+        self._linked_readers = []
         self.root = None
         self.model = None
         self.dirty = False
@@ -45,8 +46,8 @@ class TreeDocument(QtCore.QObject):
     def _load_file(self, filename: str) -> None:
         self.reader = noder_io.LazyHdf5Reader(filename, safe_mode=self.safe_mode)
         self.root = self.reader.root()
-        # CGNS/HDF5 has very few root-level children in normal files.  Load
-        # only their metadata so the initial view contains bases, never zones.
+        # CGNS/HDF5 has few root-level children in normal files. Load their
+        # metadata so all direct root nodes are visible without loading zones.
         self.reader.ensure_children_loaded(self.root)
         try:
             self.model = NoderTreeModel(self.root, read_only=self.read_only, parent=self)
@@ -152,6 +153,7 @@ class TreeDocument(QtCore.QObject):
         if self.reader is not None:
             self.reader.close()
             self.reader = None
+        self._close_linked_readers()
         self.root.write(self.filename)
         self._load_file(self.filename)
         if model is not None:
@@ -174,3 +176,13 @@ class TreeDocument(QtCore.QObject):
         if self.reader is not None:
             self.reader.close()
             self.reader = None
+        self._close_linked_readers()
+
+    def retain_link_reader(self, reader) -> None:
+        """Keep an external lazy reader alive while imported nodes use it."""
+        self._linked_readers.append(reader)
+
+    def _close_linked_readers(self) -> None:
+        readers, self._linked_readers = self._linked_readers, []
+        for reader in readers:
+            reader.close()
