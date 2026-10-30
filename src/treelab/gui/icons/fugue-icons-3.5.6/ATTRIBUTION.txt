@@ -1,0 +1,63 @@
+Fugue Icons
+-----------
+The following icons are from Fugue Icons by Yusuke Kamiyamane (2011):
+
+arrow-circle-double.png
+arrow-circle.png
+arrow-switch.png
+blue-document-attribute.png
+blue-document-binary.png
+blue-document-copy.png
+blue-document-rename.png
+border-left.png
+chain--plus.png
+chain.png
+clipboard-paste.png
+compile.png
+cross.png
+disk--arrow.png
+disk--plus.png
+disk.png
+external.png
+folder-horizontal-open.png
+gear.png
+inspector-infocard.png
+lightning.png
+magnifier--arrow.png
+magnifier-zoom-in.png
+magnifier-zoom-out.png
+node-magnifier.png
+plug-disconnect.png
+plus.png
+scissors-blue.png
+script-attribute-r.png
+system-monitor.png
+tree-red.png
+tree.png
+user-silhouette.png
+
+Fugue Icons are licensed under the Creative Commons Attribution 3.0 license:
+https://creativecommons.org/licenses/by/3.0/
+
+Icons8
+------
+The following icons are from Icons8:
+
+icons8-box-32.png
+icons8-collapse-48.png
+icons8-coordinate-system-16.png
+icons8-expand-48.png
+icons8-expand2-48.png
+icons8-expand3-48.png
+icons8-famille-homme-femme-26.png
+icons8-hashtag-activity-grid-16.png
+icons8-squelette-16-rec.png
+icons8-squelette-16.png
+icons8-x-coordinate-16.png
+icons8-y-coordinate-16.png
+icons8-z-coordinate-16.png
+Sigma.png
+zone-2D.png
+
+Icons8 attribution: Icons by Icons8
+https://icons8.com/icons

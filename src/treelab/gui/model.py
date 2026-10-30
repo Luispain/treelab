@@ -86,7 +86,7 @@ def _node_icon(node) -> QtGui.QIcon:
     if node_type == "ZoneBC_t":
         return _icon("fugue-icons-3.5.6/border-left.png")
     if node_type == "Link_t" or getattr(node, "has_link_target", lambda: False)():
-        return _icon("fugue-icons-3.5.6/external.png")
+        return _icon("fugue-icons-3.5.6/chain.png")
     if node_type == "DataArray_t":
         if not getattr(node, "data_is_loaded", lambda: True)():
             return _icon("fugue-icons-3.5.6/lightning.png")

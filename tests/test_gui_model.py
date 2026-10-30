@@ -48,6 +48,30 @@ def _base(document):
     return base, document.model.index_for_node(base)
 
 
+def _write_cgns_type_inspector_file(filename):
+    h5py = pytest.importorskip("h5py")
+    with h5py.File(filename, "w", track_order=True) as h5file:
+        h5file.attrs["name"] = np.bytes_("HDF5 MotherNode")
+        h5file.attrs["label"] = np.bytes_("Root Node of HDF5 File")
+        h5file.attrs["type"] = np.bytes_("MT")
+
+        flag = h5file.create_group("Flag", track_order=True)
+        flag.attrs["name"] = np.bytes_("Flag")
+        flag.attrs["label"] = np.bytes_("DataArray_t")
+        flag.attrs["type"] = np.bytes_("B1")
+        flag.create_dataset(" data", data=np.array([0, 1], dtype=np.uint8))
+
+        custom_group = h5file.create_group("CustomTypes", track_order=True)
+        custom_group.attrs["name"] = np.bytes_("CustomTypes")
+        custom_group.attrs["label"] = np.bytes_("UserDefinedData_t")
+        custom_group.attrs["type"] = np.bytes_("MT")
+        for name in ("CustomOne", "CustomTwo"):
+            custom = custom_group.create_group(name, track_order=True)
+            custom.attrs["name"] = np.bytes_(name)
+            custom.attrs["label"] = np.bytes_("DataArray_t")
+            custom.attrs["type"] = np.bytes_("H1")
+
+
 def _names(filename):
     root = noder_io.read(str(filename))
     return [child.name() for child in root.get_at_path("Base").children()]
@@ -245,6 +269,70 @@ def test_search_selects_all_matches_and_f3_only_moves_focus(tmp_path, qapp, monk
     window.close()
 
 
+def test_cgns_type_inspector_dialog_selects_custom_type_and_shows_source_type(
+    tmp_path, qapp, monkeypatch
+):
+    filename = tmp_path / "type-inspector.cgns"
+    _write_cgns_type_inspector_file(filename)
+
+    captured = {}
+
+    def choose_custom_type(parent, title, label, items, current, editable):
+        captured.update(
+            title=title,
+            label=label,
+            items=list(items),
+            current=current,
+            editable=editable,
+        )
+        return "H1", True
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog,
+        "getItem",
+        staticmethod(choose_custom_type),
+    )
+    window = MainWindow([str(filename)])
+    try:
+        document = window.current_document()
+        flag = document.root.get_at_path("Flag")
+        window.show_node(flag)
+        assert window.cgns_type_info.text() == "B1"
+        assert document.cgns_type_attribute(flag) == "B1"
+
+        assert not window.action_cgns_type_inspector.icon().isNull()
+        window.action_cgns_type_inspector.trigger()
+
+        assert captured["editable"] is True
+        assert captured["items"] == [
+            "I1 (int8, CGNS NOT-standard)",
+            "I2 (int16, CGNS NOT-standard)",
+            "I4 (int32, CGNS standard)",
+            "I8 (int64, CGNS standard)",
+            "U1 (uint8, CGNS NOT-standard)",
+            "U2 (uint16, CGNS NOT-standard)",
+            "U4 (uint32, CGNS standard)",
+            "U8 (uint64, CGNS standard)",
+            "R4 (float32, CGNS standard)",
+            "R8 (float64, CGNS standard)",
+            "X4 (complex 32-bit, CGNS standard)",
+            "X8 (complex 64-bit, CGNS standard)",
+            "C1 (int8 character, CGNS standard)",
+            "B1 (byte, CGNS standard)",
+            "MT (empty, CGNS standard)",
+        ]
+        tree = window.current_view().tree
+        assert [node.name() for node in tree.selected_nodes()] == [
+            "CustomOne",
+            "CustomTwo",
+        ]
+        assert "2 match(es) for cgns_type:H1" in window.statusBar().currentMessage()
+        window.navigate_search(1)
+        assert tree.model().node(tree.currentIndex()).name() == "CustomTwo"
+    finally:
+        window.close()
+
+
 def test_paste_keeps_duplicate_names_by_suffixing(tmp_path, qapp):
     filename = tmp_path / "paste-suffix.cgns"
     root = Node("CGNSTree", "CGNSTree_t")
@@ -383,7 +471,7 @@ def test_new_payload_and_save_node_propagate_to_all_selected_nodes(tmp_path, qap
 
     class AcceptedPayloadDialog:
         def __init__(self, parent):
-            pass
+            self.store_strings_as_S1_checkbox = QtWidgets.QCheckBox()
 
         def exec(self):
             return QtWidgets.QDialog.DialogCode.Accepted
@@ -422,7 +510,7 @@ def test_new_payload_direct_sibling_references(qapp, monkeypatch):
 
     class AcceptedPayloadDialog:
         def __init__(self, parent):
-            pass
+            self.store_strings_as_S1_checkbox = QtWidgets.QCheckBox()
 
         def exec(self):
             return QtWidgets.QDialog.DialogCode.Accepted
@@ -445,10 +533,13 @@ def test_new_payload_dialog_remembers_text_and_shift_enter(qapp):
     try:
         NewPayloadDialog._last_expression = ""
         first = NewPayloadDialog()
+        assert first.store_strings_as_S1_checkbox.isChecked()
+        first.store_strings_as_S1_checkbox.setChecked(False)
         first.editor.setPlainText("np.arange(3)")
         first.reject()
 
         second = NewPayloadDialog()
+        assert second.store_strings_as_S1_checkbox.isChecked()
         assert second.expression() == "np.arange(3)"
         second.show()
         second.editor.setFocus()
@@ -463,6 +554,38 @@ def test_new_payload_dialog_remembers_text_and_shift_enter(qapp):
         second.close()
     finally:
         NewPayloadDialog._last_expression = previous
+
+
+@pytest.mark.parametrize("store_as_s1", [True, False])
+def test_new_payload_uses_noder_string_storage_option(qapp, monkeypatch, store_as_s1):
+    window = MainWindow([])
+    target = Node("Description", "Descriptor_t")
+    window.current_document().root.add_child(target)
+    window.show_node(target)
+
+    class AcceptedPayloadDialog:
+        def __init__(self, parent):
+            self.store_strings_as_S1_checkbox = QtWidgets.QCheckBox()
+            self.store_strings_as_S1_checkbox.setChecked(store_as_s1)
+
+        def exec(self):
+            return QtWidgets.QDialog.DialogCode.Accepted
+
+        def expression(self):
+            return "'jamon'"
+
+    monkeypatch.setattr(
+        "treelab.gui.window.NewPayloadDialog", AcceptedPayloadDialog
+    )
+    window.new_payload()
+
+    if store_as_s1:
+        assert target.numpy().dtype == np.dtype("|S1")
+        assert target.numpy().tobytes() == b"jamon"
+    else:
+        assert target.numpy().dtype == np.dtype("|S5")
+    window.current_document().dirty = False
+    window.close()
 
 
 def test_rename_paths_suffix_duplicate_siblings_and_multi_edit(qapp, monkeypatch):
