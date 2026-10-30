@@ -107,6 +107,12 @@ def _node_children(node, *, loaded_only: bool = True) -> list:
     return node.loaded_children() if loaded_only else node.children()
 
 
+def _is_link_node(node) -> bool:
+    return node.type() == "Link_t" or bool(
+        getattr(node, "has_link_target", lambda: False)()
+    )
+
+
 def unique_sibling_name(parent, requested_name: str, *, exclude=None) -> str:
     """Return a name that is unique among ``parent``'s children.
 
@@ -157,6 +163,7 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         self.root = root
         self.read_only = read_only
         self._nodes: dict[int, object] = {}
+        self._revealed_links: dict[int, object] = {}
         self._register(root)
 
     def _register(self, node):
@@ -167,7 +174,26 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         self.beginResetModel()
         self.root = root
         self._nodes.clear()
+        self._revealed_links.clear()
         self._register(root)
+        self.endResetModel()
+
+    def reveal_link_ancestors(self, nodes: Iterable[object]) -> None:
+        """Expose link descendants needed to show selected search results."""
+        revealed = {}
+        for node in nodes:
+            parent = node.parent() if node is not None else None
+            while parent is not None:
+                if _is_link_node(parent):
+                    revealed[id(parent)] = parent
+                parent = parent.parent()
+
+        if revealed.keys() == self._revealed_links.keys():
+            return
+        self.beginResetModel()
+        self._revealed_links = revealed
+        self._nodes.clear()
+        self._register(self.root)
         self.endResetModel()
 
     def _node(self, index: QtCore.QModelIndex):
@@ -196,6 +222,13 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         return self._index_of(node, column)
 
     def _visible_loaded_children(self, node) -> list:
+        # Keep a link atomic unless a search result needs its target path shown.
+        if (
+            node is not None
+            and _is_link_node(node)
+            and id(node) not in self._revealed_links
+        ):
+            return []
         return _node_children(node, loaded_only=True)
 
     def _row_of(self, node) -> int:
@@ -207,7 +240,11 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
     def _index_of(self, node, column: int = 0) -> QtCore.QModelIndex:
         if node is self.root:
             return self.createIndex(0, column, self._register(node))
-        return self.createIndex(self._row_of(node), column, self._register(node))
+        try:
+            row = self._row_of(node)
+        except ValueError:
+            return QtCore.QModelIndex()
+        return self.createIndex(row, column, self._register(node))
 
     def columnCount(self, parent=QtCore.QModelIndex()) -> int:
         return 3
@@ -313,6 +350,12 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         if not parent.isValid():
             return True
         node = self._node(parent)
+        if (
+            node is not None
+            and _is_link_node(node)
+            and id(node) not in self._revealed_links
+        ):
+            return False
         return node is not None and (
             node.child_count() > 0 or bool(self._visible_loaded_children(node))
         )
@@ -322,6 +365,8 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             return False
         node = self._node(parent)
         if node is None:
+            return False
+        if _is_link_node(node) and id(node) not in self._revealed_links:
             return False
         return node.children_load_state() != "complete" and len(self._visible_loaded_children(node)) < node.child_count()
 

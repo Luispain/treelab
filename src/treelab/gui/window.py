@@ -1512,6 +1512,7 @@ class MainWindow(QtWidgets.QMainWindow):
         document = self.current_document()
         if view is None or document is None:
             return False
+        document.model.reveal_link_ancestors(nodes)
         indexes = []
         for node in nodes:
             index = self._visible_index(node, view, document)
@@ -1548,6 +1549,7 @@ class MainWindow(QtWidgets.QMainWindow):
         document = self.current_document()
         if view is None or document is None:
             return False
+        document.model.reveal_link_ancestors([node])
         index = self._visible_index(node, view, document)
         if not index.isValid():
             return False
@@ -1577,9 +1579,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.search_kind = "predicate"
             self.search_results = []
             self.search_index = -1
+            document.model.reveal_link_ancestors([])
             return
         if not expression.startswith(("/", "\\")):
             expression = "/ " + expression
+        document.model.reveal_link_ancestors([])
         try:
             self.search_expression = expression
             self.search_kind = "predicate"
@@ -1621,6 +1625,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.search_expression = f"cgns_type:{token}"
         self.search_kind = "cgns_type"
+        document.model.reveal_link_ancestors([])
         try:
             progress = self._progress(
                 "CGNS type inspector", f"Searching for CGNS type {token}..."
@@ -2056,6 +2061,10 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 # Preserve the node's path so its link metadata can be saved
                 # with Noder's focused HDF5 writer, without rewriting the tree.
+                # The writer temporarily closes the attached lazy reader. Mark
+                # this verified empty child list complete first so it does not
+                # try to query that reader during the write.
+                node.ensure_children_loaded()
                 if has_payload:
                     node.set_data(None)
                 node.set_type("Link_t")

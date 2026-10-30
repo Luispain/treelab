@@ -177,6 +177,14 @@ class TreeDocument(QtCore.QObject):
             model.set_root(self.root)
 
     def _materialise(self, node) -> None:
+        if node.has_link_target():
+            # Children exposed by the lazy reader belong to the remote target,
+            # not to the link node in this file. Discard loaded target rows so
+            # a full write can preserve the link without copying that subtree.
+            for child in list(node.loaded_children()):
+                child.detach()
+            node.clear_expansion()
+            return
         node.ensure_children_loaded()
         if node.has_data():
             node.data()
