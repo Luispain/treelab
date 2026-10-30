@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import html
+import os
 from pathlib import Path
+import re
 
 from .. import __version__
 import numpy as np
@@ -28,11 +31,30 @@ from .payload import (
 )
 from .new_payload import NewPayloadDialog, PayloadExpressionError, evaluate_payload_expression
 from .plotter import PlotWindow
+from .set_link import SetLinkDialog
 
 
 GUI_PATH = Path(__file__).resolve().parent
 MOLA_ICON = GUI_PATH / "icons" / "OwnIcons" / "mola_v2_only_logo.svg"
 ICON_DIR = GUI_PATH / "icons"
+
+_CGNS_TYPE_INSPECTOR_CHOICES = [
+    "I1 (int8, CGNS NOT-standard)",
+    "I2 (int16, CGNS NOT-standard)",
+    "I4 (int32, CGNS standard)",
+    "I8 (int64, CGNS standard)",
+    "U1 (uint8, CGNS NOT-standard)",
+    "U2 (uint16, CGNS NOT-standard)",
+    "U4 (uint32, CGNS standard)",
+    "U8 (uint64, CGNS standard)",
+    "R4 (float32, CGNS standard)",
+    "R8 (float64, CGNS standard)",
+    "X4 (complex 32-bit, CGNS standard)",
+    "X8 (complex 64-bit, CGNS standard)",
+    "C1 (int8 character, CGNS standard)",
+    "B1 (byte, CGNS standard)",
+    "MT (empty, CGNS standard)",
+]
 
 
 def _icon(relative_path: str) -> QtGui.QIcon:
@@ -266,6 +288,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.views: list[DocumentView] = []
         self.clipboard_nodes: list = []
         self.search_expression = ""
+        self.search_kind = "predicate"
         self.search_results: list = []
         self.search_index = -1
         self.plot_window: PlotWindow | None = None
@@ -308,6 +331,9 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = self.menuBar().addMenu("File")
         edit_menu = self.menuBar().addMenu("Edit")
         view_menu = self.menuBar().addMenu("View")
+        self.action_about = QtGui.QAction("About", self)
+        self.action_about.triggered.connect(self.show_about)
+        self.menuBar().addAction(self.action_about)
 
         def help_text(action, text: str, shortcut: str | None = None) -> None:
             description = f"{text} ({shortcut})" if shortcut else text
@@ -424,6 +450,15 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_search, "Search", "Ctrl+F")
         view_menu.addAction(self.action_search)
 
+        self.action_cgns_type_inspector = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/inspector-infocard.png"),
+            "Inspect CGNS type…",
+            self,
+        )
+        self.action_cgns_type_inspector.triggered.connect(self.inspect_cgns_type)
+        help_text(self.action_cgns_type_inspector, "Inspect CGNS HDF5 type")
+        view_menu.addAction(self.action_cgns_type_inspector)
+
         initial_dark = palette_is_dark(QtWidgets.QApplication.instance())
         theme_label = "Switch to light mode" if initial_dark else "Switch to dark mode"
         self.action_toggle_theme = QtGui.QAction(
@@ -498,11 +533,18 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_unload_payload_recursive, "Unload descendants", "Shift+F6")
         view_menu.addAction(self.action_unload_payload_recursive)
 
-        self.action_read_link = QtGui.QAction(_icon("fugue-icons-3.5.6/external.png"), "Read link (F7)", self)
+        self.action_read_link = QtGui.QAction(_icon("fugue-icons-3.5.6/chain.png"), "Read link (F7)", self)
         self.action_read_link.setShortcut(QtGui.QKeySequence("F7"))
         self.action_read_link.triggered.connect(self.read_current_links)
         help_text(self.action_read_link, "Read link", "F7")
         view_menu.addAction(self.action_read_link)
+
+        self.action_set_link = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/chain--plus.png"), "Set Link…", self
+        )
+        self.action_set_link.triggered.connect(self.set_link)
+        help_text(self.action_set_link, "Set link on the selected node")
+        view_menu.addAction(self.action_set_link)
 
         self.action_read_link_recursive = QtGui.QAction("Read links recursively (Shift+F7)", self)
         self.action_read_link_recursive.setShortcut(QtGui.QKeySequence("Shift+F7"))
@@ -543,6 +585,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_copy)
         toolbar.addAction(self.action_paste)
         toolbar.addAction(self.action_search)
+        toolbar.addAction(self.action_cgns_type_inspector)
         toolbar.addAction(self.action_plot)
         toolbar.addAction(self.action_plot_add_x)
         toolbar.addAction(self.action_plot_add_y)
@@ -552,6 +595,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_load_payload)
         toolbar.addAction(self.action_unload_payload)
         toolbar.addAction(self.action_read_link)
+        toolbar.addAction(self.action_set_link)
         toolbar.addSeparator()
         toolbar.addAction(self.action_swap)
         toolbar.addSeparator()
@@ -561,7 +605,8 @@ class MainWindow(QtWidgets.QMainWindow):
             for action in (self.action_new_node, self.action_save, self.action_save_as,
                            self.action_rename_nodes, self.action_set_node_type,
                            self.action_cut, self.action_paste, self.action_delete, self.action_swap,
-                           self.action_read_link, self.action_read_link_recursive,
+                           self.action_read_link, self.action_set_link,
+                           self.action_read_link_recursive,
                            self.action_new_payload):
                 action.setEnabled(False)
 
@@ -570,13 +615,55 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dock.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         panel = QtWidgets.QWidget(self.dock)
-        form = QtWidgets.QFormLayout(panel)
+        self.node_details_layout = QtWidgets.QVBoxLayout(panel)
+        self.node_details_layout.setContentsMargins(0, 0, 0, 0)
+        form = QtWidgets.QFormLayout()
+        self.node_details_layout.addLayout(form)
+        self.node_details_layout.addStretch(1)
         self.node_path_edit = QtWidgets.QLineEdit(panel)
         self.node_path_edit.setReadOnly(True)
         self.node_path_edit.setPlaceholderText("Select a node to copy its path")
         self.payload_info = QtWidgets.QLabel(panel)
         self.payload_info.setWordWrap(True)
+        self.link_metadata_table = QtWidgets.QTableWidget(2, 2, panel)
+        self.link_metadata_table.setObjectName("linkMetadataTable")
+        self.link_metadata_table.setHorizontalHeaderLabels(["", ""])
+        self.link_metadata_table.horizontalHeader().hide()
+        self.link_metadata_table.verticalHeader().hide()
+        self.link_metadata_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.link_metadata_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectItems
+        )
+        self.link_metadata_table.horizontalHeader().setSectionResizeMode(
+            0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.link_metadata_table.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.ResizeMode.Stretch
+        )
+        for row, label in enumerate(("target node path", "target file path")):
+            item = QtWidgets.QTableWidgetItem(label)
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            self.link_metadata_table.setItem(row, 0, item)
+            value = QtWidgets.QTableWidgetItem("")
+            value.setFlags(value.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            self.link_metadata_table.setItem(row, 1, value)
+        self.link_metadata_table.setMaximumHeight(68)
+        self.link_metadata_table.hide()
+        self.cgns_type_info = QtWidgets.QLabel("Not available", panel)
+        self.cgns_type_info.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        self.cgns_type_info.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         self.siblings_info = QtWidgets.QLabel("Number of siblings: 0", panel)
+        self.siblings_info.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
         self.payload_table = QtWidgets.QTableWidget(panel)
         self.payload_table.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
@@ -605,6 +692,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for button in (self.payload_mode_spaces, self.payload_mode_axis, self.payload_mode_raw):
             mode_layout.addWidget(button)
             button.toggled.connect(self._refresh_payload_table)
+        self.payload_mode_controls = mode_controls
         self.payload_axis = QtWidgets.QComboBox(panel)
         self.payload_axis.addItems(["axis 0", "axis 1", "axis 2"])
         self.payload_slice = QtWidgets.QSpinBox(panel)
@@ -614,19 +702,27 @@ class MainWindow(QtWidgets.QMainWindow):
         slice_layout.setContentsMargins(0, 0, 0, 0)
         slice_layout.addWidget(self.payload_axis)
         slice_layout.addWidget(self.payload_slice)
+        self.payload_slice_controls = slice_controls
         self.save_node_button = QtWidgets.QPushButton("Save Node", panel)
         self.dump_data_button = QtWidgets.QPushButton("Dump data", panel)
         self.new_payload_button = QtWidgets.QPushButton("New payload", panel)
         form.addRow("Path", self.node_path_edit)
+        form.addRow(self.link_metadata_table)
+        form.addRow("CGNS type (source)", self.cgns_type_info)
         form.addRow(self.siblings_info)
         form.addRow("Payload", self.payload_info)
+        self.payload_label = form.labelForField(self.payload_info)
         form.addRow("String view", mode_controls)
+        self.payload_mode_label = form.labelForField(mode_controls)
         form.addRow(self.payload_table)
         form.addRow("Slice", slice_controls)
-        buttons = QtWidgets.QHBoxLayout()
+        self.payload_slice_label = form.labelForField(slice_controls)
+        self.node_action_buttons = QtWidgets.QWidget(panel)
+        buttons = QtWidgets.QHBoxLayout(self.node_action_buttons)
+        buttons.setContentsMargins(0, 0, 0, 0)
         buttons.addWidget(self.save_node_button)
         buttons.addWidget(self.dump_data_button)
-        form.addRow(buttons)
+        form.addRow(self.node_action_buttons)
         form.addRow(self.new_payload_button)
         self.dock.setWidget(panel)
         self.save_node_button.clicked.connect(self.save_current_node)
@@ -636,6 +732,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.payload_slice.valueChanged.connect(self._refresh_payload_table)
         self._selected_node = None
         self._refresh_payload_table()
+        self._set_node_detail_content_visible(True)
         if self.read_only:
             self.payload_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
             self.save_node_button.setEnabled(False)
@@ -672,6 +769,45 @@ class MainWindow(QtWidgets.QMainWindow):
             view.tree.header().viewport().update()
         if self.plot_window is not None:
             self.plot_window.apply_theme()
+
+    def show_about(self) -> None:
+        """Show bundled icon attribution and project information."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("About MOLA TreeLab")
+        dialog.resize(680, 520)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        title = QtWidgets.QLabel(f"MOLA TreeLab {__version__}", dialog)
+        title.setStyleSheet("font-weight: bold; font-size: 14pt")
+        layout.addWidget(title)
+
+        attribution_file = ICON_DIR / "fugue-icons-3.5.6" / "ATTRIBUTION.txt"
+        try:
+            attribution = attribution_file.read_text(encoding="utf-8")
+        except OSError as error:
+            attribution = f"Could not read icon attributions:\n{error}"
+        safe_attribution = html.escape(attribution)
+        linked_attribution = re.sub(
+            r"https?://[^\s<]+",
+            lambda match: (
+                f'<a href="{match.group(0)}">{match.group(0)}</a>'
+            ),
+            safe_attribution,
+        )
+        browser = QtWidgets.QTextBrowser(dialog)
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(
+            "<html><body><pre style='white-space: pre-wrap; "
+            "font-family: sans-serif'>"
+            f"{linked_attribution}</pre></body></html>"
+        )
+        layout.addWidget(browser, 1)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Close, parent=dialog
+        )
+        buttons.rejected.connect(dialog.accept)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def new_document(self) -> None:
         document = TreeDocument(
@@ -808,9 +944,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def show_node(self, node) -> None:
         self._selected_node = node
+        is_link = bool(
+            node is not None
+            and (node.type() == "Link_t" or node.has_link_target())
+        )
+        self._set_node_detail_content_visible(not is_link, is_link=is_link)
         if node is None:
             self.dock.setWindowTitle("Node")
             self.node_path_edit.clear()
+            self._update_link_metadata_table(None)
+            self.cgns_type_info.setText("Not available")
             self.payload_info.clear()
             self.siblings_info.setText("Number of siblings: 0")
             self._update_save_node_state()
@@ -818,6 +961,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.dock.setWindowTitle(node.path())
         self.node_path_edit.setText(self._node_path_without_root(node))
+        self._update_link_metadata_table(node)
+        document = self.current_document()
+        source_type = document.cgns_type_attribute(node) if document is not None else None
+        if source_type is None:
+            self.cgns_type_info.setText("Not available for this node")
+        elif not source_type.strip():
+            self.cgns_type_info.setText("<missing>")
+        else:
+            self.cgns_type_info.setText(source_type.strip())
         self._update_sibling_info(node)
         self._update_save_node_state()
         try:
@@ -828,6 +980,46 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as error:
             self.payload_info.setText(f"Payload unavailable: {error}")
         self._refresh_payload_table()
+
+    def _update_link_metadata_table(self, node) -> None:
+        has_link_target = bool(node is not None and node.has_link_target())
+        if has_link_target:
+            target_path = node.link_target_path()
+            target_file = node.link_target_file()
+            self.link_metadata_table.item(0, 1).setText(target_path)
+            self.link_metadata_table.item(0, 1).setToolTip(target_path)
+            self.link_metadata_table.item(1, 1).setText(target_file)
+            self.link_metadata_table.item(1, 1).setToolTip(target_file)
+            self.link_metadata_table.show()
+        else:
+            self.link_metadata_table.item(0, 1).setText("")
+            self.link_metadata_table.item(0, 1).setToolTip("")
+            self.link_metadata_table.item(1, 1).setText("")
+            self.link_metadata_table.item(1, 1).setToolTip("")
+            self.link_metadata_table.hide()
+
+    def _set_node_detail_content_visible(
+        self, visible: bool, *, is_link: bool = False
+    ) -> None:
+        # Let the form grow for regular nodes so the payload table can use the
+        # dock height. For links, send all spare space to the trailing stretch.
+        self.node_details_layout.setStretch(0, 1 if visible else 0)
+        self.node_details_layout.setStretch(1, 0 if visible else 1)
+        for widget in (
+            self.payload_label,
+            self.payload_info,
+            self.payload_mode_label,
+            self.payload_mode_controls,
+            self.payload_table,
+            self.payload_slice_label,
+            self.payload_slice_controls,
+            self.new_payload_button,
+        ):
+            if widget is not None:
+                widget.setVisible(visible)
+        self.node_action_buttons.setVisible(visible or is_link)
+        self.save_node_button.setVisible(visible or is_link)
+        self.dump_data_button.setVisible(visible)
 
     def _update_sibling_info(self, node) -> None:
         if node is None:
@@ -968,7 +1160,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 for node in nodes
             ]
             for node, value in zip(nodes, values):
-                document.edit_node_data(node, value)
+                document.edit_node_data(
+                    node,
+                    value,
+                    store_strings_as_S1=dialog.store_strings_as_S1_checkbox.isChecked(),
+                )
         except PayloadExpressionError as error:
             QtWidgets.QMessageBox.warning(self, "New payload failed", str(error))
             return
@@ -1378,6 +1574,7 @@ class MainWindow(QtWidgets.QMainWindow):
         expression = expression.strip()
         if not expression:
             self.search_expression = ""
+            self.search_kind = "predicate"
             self.search_results = []
             self.search_index = -1
             return
@@ -1385,6 +1582,7 @@ class MainWindow(QtWidgets.QMainWindow):
             expression = "/ " + expression
         try:
             self.search_expression = expression
+            self.search_kind = "predicate"
             self.search_results = self._find_nodes_by_predicate(document, expression)
             if not self.search_results:
                 self.search_index = -1
@@ -1395,6 +1593,56 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f"{len(self.search_results)} match(es) for {expression}")
         except Exception as error:
             QtWidgets.QMessageBox.warning(self, "Search failed", str(error))
+
+    def inspect_cgns_type(self) -> None:
+        document = self.current_document()
+        if document is None:
+            return
+        if document.reader is None:
+            self.statusBar().showMessage(
+                "Open a CGNS/HDF5 file to inspect its type attributes."
+            )
+            return
+
+        choice, accepted = QtWidgets.QInputDialog.getItem(
+            self,
+            "CGNS type inspector",
+            "Enter CGNS HDF5 attribute type to inspect:",
+            _CGNS_TYPE_INSPECTOR_CHOICES,
+            0,
+            True,
+        )
+        if not accepted:
+            return
+        choice = choice.strip()
+        token = choice.split(maxsplit=1)[0].upper() if choice else ""
+        if not token:
+            return
+
+        self.search_expression = f"cgns_type:{token}"
+        self.search_kind = "cgns_type"
+        try:
+            progress = self._progress(
+                "CGNS type inspector", f"Searching for CGNS type {token}..."
+            )
+            progress.setCancelButton(None)
+            try:
+                self.search_results = document.find_nodes_by_cgns_type(token)
+            finally:
+                progress.close()
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self, "CGNS type inspection failed", str(error))
+            return
+
+        if not self.search_results:
+            self.search_index = -1
+            self.statusBar().showMessage(f"No match for {self.search_expression}")
+            return
+        self.search_index = 0
+        self._select_nodes(self.search_results, focus=self.search_results[0])
+        self.statusBar().showMessage(
+            f"{len(self.search_results)} match(es) for {self.search_expression}"
+        )
 
     def _find_nodes_by_predicate(self, document: TreeDocument, expression: str) -> list:
         progress = self._progress("Search tree", f"Searching for {expression}…")
@@ -1411,6 +1659,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     document = self.current_document()
                     if document is None:
                         self.search_results = []
+                    elif self.search_kind == "cgns_type":
+                        token = self.search_expression.partition(":")[2]
+                        self.search_results = document.find_nodes_by_cgns_type(token)
                     else:
                         self.search_results = self._find_nodes_by_predicate(
                             document, self.search_expression
@@ -1418,7 +1669,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 except Exception:
                     self.search_results = []
             if not self.search_results:
-                self.search_nodes()
+                if self.search_kind == "cgns_type":
+                    self.statusBar().showMessage(f"No match for {self.search_expression}")
+                else:
+                    self.search_nodes()
                 return
         self.search_index = (self.search_index + step) % len(self.search_results)
         self._focus_node(self.search_results[self.search_index])
@@ -1632,6 +1886,200 @@ class MainWindow(QtWidgets.QMainWindow):
             document.model.endResetModel()
         document.mark_changed(full=True)
 
+    def set_link(self) -> None:
+        """Replace one selected node with a link to a node in another file."""
+        if self.read_only:
+            return
+        document = self.current_document()
+        nodes = self._current_nodes()
+        if document is None or len(nodes) != 1:
+            self.statusBar().showMessage("Select exactly one node to set a link")
+            return
+        node = nodes[0]
+        if node is document.root:
+            self.statusBar().showMessage("The tree root cannot be replaced by a link")
+            return
+
+        existing_link = node.has_link_target()
+        existing_link_file = node.link_target_file() if existing_link else None
+        existing_link_path = node.link_target_path() if existing_link else None
+        existing_link_root_name = None
+        if existing_link:
+            link_filename = Path(existing_link_file) if existing_link_file else None
+            if link_filename is None and document.filename:
+                link_filename = Path(document.filename)
+            if link_filename is not None:
+                if (
+                    not link_filename.is_absolute()
+                    and document.filename
+                    and existing_link_file
+                ):
+                    link_filename = Path(document.filename).resolve().parent / link_filename
+                link_reader = None
+                try:
+                    link_reader = noder_io.LazyHdf5Reader(
+                        str(link_filename), safe_mode=document.safe_mode
+                    )
+                    existing_link_root_name = str(link_reader.root().name()).strip("/")
+                except Exception:
+                    # The dialog can still be opened if a stale link target is
+                    # unavailable; retain its path without guessing a root name.
+                    existing_link_root_name = None
+                finally:
+                    if link_reader is not None:
+                        link_reader.close()
+        dialog = SetLinkDialog(
+            source_filename=document.filename,
+            safe_mode=document.safe_mode,
+            existing_link_file=existing_link_file,
+            existing_link_path=existing_link_path,
+            existing_link_root_name=existing_link_root_name,
+            parent=self,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        file_value, path_value, use_relative = dialog.target()
+        file_value = file_value.strip()
+        if not file_value:
+            QtWidgets.QMessageBox.warning(self, "Set link", "Enter a target CGNS file path.")
+            return
+        try:
+            target_file_value = Path(file_value).expanduser()
+            source_directory = (
+                Path(document.filename).expanduser().resolve().parent
+                if document.filename
+                else Path.cwd()
+            )
+            target_filename = (
+                target_file_value.resolve()
+                if target_file_value.is_absolute()
+                else (source_directory / target_file_value).resolve()
+            )
+            target_reader = noder_io.LazyHdf5Reader(
+                str(target_filename), safe_mode=document.safe_mode
+            )
+            try:
+                target_root = target_reader.root()
+                root_name = str(target_root.name()).strip("/")
+                path_parts = [
+                    part
+                    for part in path_value.strip().replace("\\", "/").split("/")
+                    if part
+                ]
+                if path_parts and path_parts[0] == root_name:
+                    path_parts = path_parts[1:]
+                target_node = target_root
+                for part in path_parts:
+                    target_node.ensure_children_loaded()
+                    target_node = next(
+                        (
+                            child
+                            for child in target_node.loaded_children()
+                            if child.name() == part
+                        ),
+                        None,
+                    )
+                    if target_node is None:
+                        break
+                if target_node is None:
+                    requested_path = "/".join(path_parts)
+                    raise ValueError(
+                        f"Target node does not exist: {target_filename}:{requested_path}"
+                    )
+            finally:
+                target_reader.close()
+
+            if use_relative:
+                if not document.filename:
+                    raise ValueError(
+                        "Save the source CGNS file before creating a relative link."
+                    )
+                stored_file = os.path.relpath(
+                    target_filename, start=source_directory
+                ).replace(os.sep, "/")
+            else:
+                stored_file = (
+                    str(target_file_value)
+                    if file_value.startswith("~")
+                    else file_value
+                )
+            target_path = "/" + root_name
+            if path_parts:
+                target_path += "/" + "/".join(path_parts)
+
+            has_payload = node.has_data()
+            has_children = node.child_count() > 0
+            has_contents = has_payload or has_children
+            if has_contents:
+                answer = QtWidgets.QMessageBox.question(
+                    self,
+                    "Replace node contents?",
+                    f"Setting a link on {node.name()} will replace its current payload and children. Continue?",
+                    QtWidgets.QMessageBox.StandardButton.Yes
+                    | QtWidgets.QMessageBox.StandardButton.No,
+                    QtWidgets.QMessageBox.StandardButton.No,
+                )
+                if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+                    return
+
+            parent = node.parent()
+            if parent is None:
+                raise ValueError("Cannot set a link on a detached node")
+            if has_children:
+                # The focused HDF5 writer cannot remove an existing subtree.
+                # Keep the prior replacement path for this structural case.
+                replacement = Node(node.name(), "Link_t")
+                replacement.set_link_target(stored_file, target_path)
+                document.model.beginResetModel()
+                try:
+                    document.model.prepare_for_structural_edit(parent)
+                    position = parent.loaded_children().index(node)
+                    node.detach()
+                    try:
+                        replacement.attach_to(
+                            parent,
+                            position=position,
+                            override_sibling_by_name=False,
+                        )
+                    except Exception:
+                        node.attach_to(
+                            parent,
+                            position=position,
+                            override_sibling_by_name=False,
+                        )
+                        raise
+                finally:
+                    document.model.endResetModel()
+                linked_node = replacement
+                document.mark_changed(full=True)
+            else:
+                # Preserve the node's path so its link metadata can be saved
+                # with Noder's focused HDF5 writer, without rewriting the tree.
+                if has_payload:
+                    node.set_data(None)
+                node.set_type("Link_t")
+                node.set_link_target(stored_file, target_path)
+                index = document.model.index_for_node(node)
+                if index.isValid():
+                    document.model.dataChanged.emit(
+                        index,
+                        index.siblingAtColumn(2),
+                        [
+                            QtCore.Qt.ItemDataRole.DisplayRole,
+                            QtCore.Qt.ItemDataRole.EditRole,
+                            QtCore.Qt.ItemDataRole.DecorationRole,
+                        ],
+                    )
+                linked_node = node
+                document.mark_changed(full=False, node=node)
+            self._select_nodes([linked_node], focus=linked_node)
+            self.statusBar().showMessage(
+                f"Set link {linked_node.path()} → {target_filename}:{target_path}"
+            )
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self, "Set link failed", str(error))
+
     def _read_link(self, document: TreeDocument, node):
         if not node.has_link_target():
             return node
@@ -1785,6 +2233,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tabs.setCurrentIndex(min(self.tabs.currentIndex(), len(self.documents) - 1))
             return
         self.search_expression = ""
+        self.search_kind = "predicate"
         self.search_results = []
         self.search_index = -1
         view = self.current_view()

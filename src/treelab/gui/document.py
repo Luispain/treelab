@@ -64,6 +64,22 @@ class TreeDocument(QtCore.QObject):
     def has_read_warnings(self) -> bool:
         return bool(self.reader is not None and self.reader.has_warnings())
 
+    def cgns_type_attribute(self, node) -> str | None:
+        """Return a node's source CGNS ``type`` attribute when available."""
+        readers = ([self.reader] if self.reader is not None else []) + self._linked_readers
+        for reader in readers:
+            try:
+                return reader.cgns_type_attribute(node)
+            except (RuntimeError, ValueError):
+                continue
+        return None
+
+    def find_nodes_by_cgns_type(self, cgns_type: str) -> list:
+        """Find source-file nodes by the CGNS ``type`` attribute value."""
+        if self.reader is None:
+            return []
+        return self.reader.find_nodes_by_cgns_type(cgns_type)
+
     def mark_changed(self, *, full: bool, node=None) -> None:
         self.dirty = True
         self.requires_full_write |= full
@@ -71,10 +87,10 @@ class TreeDocument(QtCore.QObject):
             self._payload_dirty[id(node)] = node
         self.changed.emit()
 
-    def edit_node_data(self, node, value) -> None:
-        self.edit_nodes_data([node], value)
+    def edit_node_data(self, node, value, *, store_strings_as_S1: bool = False) -> None:
+        self.edit_nodes_data([node], value, store_strings_as_S1=store_strings_as_S1)
 
-    def edit_nodes_data(self, nodes, value) -> None:
+    def edit_nodes_data(self, nodes, value, *, store_strings_as_S1: bool = False) -> None:
         """Set one payload value on several nodes in one document update.
 
         Array values are copied for each node so subsequent table edits to one
@@ -91,7 +107,7 @@ class TreeDocument(QtCore.QObject):
         nodes = unique_nodes
         for node in nodes:
             node_value = np.array(value, copy=True) if isinstance(value, np.ndarray) else value
-            node.set_data(node_value)
+            node.set_data(node_value, store_strings_as_S1=store_strings_as_S1)
             self._payload_dirty[id(node)] = node
         if not nodes:
             return

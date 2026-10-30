@@ -36,6 +36,12 @@ class NewPayloadDialog(QtWidgets.QDialog):
         self.editor.installEventFilter(self)
         layout.addWidget(self.editor, 1)
 
+        self.store_strings_as_S1_checkbox = QtWidgets.QCheckBox(
+            "Store string as S1", self
+        )
+        self.store_strings_as_S1_checkbox.setChecked(True)
+        layout.addWidget(self.store_strings_as_S1_checkbox)
+
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok |
             QtWidgets.QDialogButtonBox.StandardButton.Cancel,
