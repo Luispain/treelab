@@ -7,6 +7,7 @@ reader remains responsible for materialising children and payloads.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Iterable
 from pathlib import Path
 
@@ -150,6 +151,8 @@ def rename_node_unique(node, requested_name: str) -> str:
 class NoderTreeModel(QtCore.QAbstractItemModel):
     """Paged, editable Qt model backed directly by noder nodes."""
 
+    children_page_loaded = QtCore.Signal(object, int)
+
     PAGE_SIZE = 128
     MIME_TYPE = "application/x-treelab-noder-node"
 
@@ -164,17 +167,42 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         self.read_only = read_only
         self._nodes: dict[int, object] = {}
         self._revealed_links: dict[int, object] = {}
+        self._bulk_loading: set[int] = set()
+        self._automatic_fetch_nodes: dict[int, object] = {}
+        self._defer_fetch_predicate = None
+        self._fetching_enabled = True
+        self._visible_children_cache: dict[int, tuple[str, int, list]] = {}
         self._register(root)
 
     def _register(self, node):
         self._nodes[id(node)] = node
         return id(node)
 
+    def _clear_visible_children_cache(self) -> None:
+        self._visible_children_cache.clear()
+
+    @contextmanager
+    def external_tree_traversal(self):
+        """Notify Qt around noder traversals that may load child metadata.
+
+        Navigation helpers such as ``all_by_predicate`` can materialize lazy
+        children without going through this model's paged fetch methods. Keep
+        the view's row counts and scroll range in sync when that happens.
+        """
+        self.layoutAboutToBeChanged.emit()
+        try:
+            yield
+        finally:
+            self._clear_visible_children_cache()
+            self.layoutChanged.emit()
+
     def set_root(self, root) -> None:
         self.beginResetModel()
         self.root = root
         self._nodes.clear()
         self._revealed_links.clear()
+        self._automatic_fetch_nodes.clear()
+        self._clear_visible_children_cache()
         self._register(root)
         self.endResetModel()
 
@@ -193,6 +221,8 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
         self.beginResetModel()
         self._revealed_links = revealed
         self._nodes.clear()
+        self._automatic_fetch_nodes.clear()
+        self._clear_visible_children_cache()
         self._register(self.root)
         self.endResetModel()
 
@@ -202,6 +232,56 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
     def node(self, index: QtCore.QModelIndex):
         """Return the noder node represented by a Qt index."""
         return self._node(index)
+
+    def set_defer_fetch_predicate(self, predicate) -> None:
+        """Let a view defer automatic expansion fetches to its progress UI."""
+        self._defer_fetch_predicate = predicate
+
+    def enable_automatic_fetch(self, node) -> None:
+        """Allow a tree view to request later pages as the user scrolls."""
+        if node is not None:
+            self._automatic_fetch_nodes[id(node)] = node
+
+    def set_fetching_enabled(self, enabled: bool) -> None:
+        """Disable lazy reads after the owning document closes."""
+        self._fetching_enabled = bool(enabled)
+        if not self._fetching_enabled:
+            self._automatic_fetch_nodes.clear()
+
+    def has_more_children(self, index: QtCore.QModelIndex) -> bool:
+        """Return whether a node has lazy children, without counting them."""
+        if (
+            not self._fetching_enabled
+            or not index.isValid()
+        ):
+            return False
+        node = self._node(index)
+        if node is None or id(node) in self._bulk_loading:
+            return False
+        if _is_link_node(node) and id(node) not in self._revealed_links:
+            return False
+        return (
+            node.children_load_state() != "complete"
+            and (
+                bool(self._visible_loaded_children(node))
+                or self._node_has_children(node)
+            )
+        )
+
+    @staticmethod
+    def _node_has_children(node) -> bool:
+        """Ask noder for an exact, metadata-only child-presence check."""
+        check = getattr(node, "has_children", None)
+        if callable(check):
+            try:
+                return bool(check())
+            except Exception:
+                # Preserve a visible expander when damaged metadata prevents
+                # an exact check; expanding it can then report the read error.
+                return node.children_load_state() != "complete"
+        # Small test doubles and older noder-compatible objects may expose
+        # only already loaded children. Never guess from a CGNS label here.
+        return bool(_node_children(node, loaded_only=True))
 
     def index_for_node(self, node, column: int = 0) -> QtCore.QModelIndex:
         """Return an index for a node, loading only its ancestor metadata."""
@@ -216,9 +296,11 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             parent = node.parent()
             if parent is None:
                 return QtCore.QModelIndex()
-            parent.ensure_children_loaded()
             if node not in self._visible_loaded_children(parent):
-                return QtCore.QModelIndex()
+                parent.ensure_children_loaded()
+                self._visible_children_cache.pop(id(parent), None)
+                if node not in self._visible_loaded_children(parent):
+                    return QtCore.QModelIndex()
         return self._index_of(node, column)
 
     def _visible_loaded_children(self, node) -> list:
@@ -229,7 +311,17 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             and id(node) not in self._revealed_links
         ):
             return []
-        return _node_children(node, loaded_only=True)
+        state = node.children_load_state()
+        cached = self._visible_children_cache.get(id(node))
+        if cached is not None and cached[0] == state:
+            # A completed lazy HDF5 node may not have a cached total yet, so
+            # child_count() can still scan the entire group. Large snapshots
+            # are invalidated by model mutations/page loads; reuse them here.
+            if state != "complete" or cached[1] > self.PAGE_SIZE:
+                return cached[2]
+        children = _node_children(node, loaded_only=True)
+        self._visible_children_cache[id(node)] = (state, len(children), children)
+        return children
 
     def _row_of(self, node) -> int:
         parent = node.parent()
@@ -356,39 +448,57 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             and id(node) not in self._revealed_links
         ):
             return False
-        return node is not None and (
-            node.child_count() > 0 or bool(self._visible_loaded_children(node))
-        )
-
-    def canFetchMore(self, parent):
-        if not parent.isValid():
-            return False
-        node = self._node(parent)
         if node is None:
             return False
-        if _is_link_node(node) and id(node) not in self._revealed_links:
-            return False
-        return node.children_load_state() != "complete" and len(self._visible_loaded_children(node)) < node.child_count()
+        if self._visible_loaded_children(node):
+            return True
+        return self._node_has_children(node)
+
+    def canFetchMore(self, parent):
+        # The lazy reader's exact child count may require scanning thousands
+        # of HDF5 links. Its load state is enough to tell Qt whether a branch
+        # may have more children; page loading determines the actual count.
+        return self.has_more_children(parent)
 
     def fetchMore(self, parent):
+        node = self._node(parent)
+        if (
+            self._defer_fetch_predicate is not None
+            and self._defer_fetch_predicate(parent)
+            and self._automatic_fetch_nodes.get(id(node)) is not node
+        ):
+            return
         if not self.canFetchMore(parent):
             return
-        node = self._node(parent)
+        self.load_next_children_page(node)
+
+    def load_next_children_page(self, node) -> int:
+        """Load at most one metadata page and return its cumulative size."""
+        if node is None or node.children_load_state() == "complete":
+            return len(node.loaded_children()) if node is not None else 0
         before = len(self._visible_loaded_children(node))
-        total = node.child_count()
-        after = min(total, before + self.PAGE_SIZE)
-        if after <= before:
-            return
-        self.beginInsertRows(parent, before, after - 1)
-        node.ensure_children_loaded(before + self.PAGE_SIZE)
-        self.endInsertRows()
+        self._bulk_loading.add(id(node))
+        self.layoutAboutToBeChanged.emit()
+        try:
+            node.ensure_children_loaded(before + self.PAGE_SIZE)
+        finally:
+            self._clear_visible_children_cache()
+            try:
+                self.layoutChanged.emit()
+            finally:
+                self._bulk_loading.discard(id(node))
+        count = len(node.loaded_children())
+        self.children_page_loaded.emit(node, count)
+        return count
 
     def ensure_visible_children(self, node) -> None:
         """Load one page, or all root children, without loading payloads."""
         if node is self.root:
             node.ensure_children_loaded()
+            self._visible_children_cache.pop(id(node), None)
         elif node.children_load_state() == "unloaded":
             node.ensure_children_loaded(self.PAGE_SIZE)
+            self._visible_children_cache.pop(id(node), None)
 
     @staticmethod
     def _is_ancestor(ancestor, node) -> bool:
@@ -519,6 +629,9 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
                 if row >= 0:
                     row += 1
         finally:
+            for model in reset_models:
+                model._clear_visible_children_cache()
+                model._automatic_fetch_nodes.clear()
             for model in reversed(reset_models):
                 model.endResetModel()
         for source_model in source_models:
@@ -547,6 +660,8 @@ class NoderTreeModel(QtCore.QAbstractItemModel):
             for node in nodes:
                 node.detach()
         finally:
+            self._clear_visible_children_cache()
+            self._automatic_fetch_nodes.clear()
             self.endResetModel()
         self._document_changed(full=True)
 

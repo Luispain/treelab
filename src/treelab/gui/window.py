@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 import html
 import os
 from pathlib import Path
@@ -62,10 +63,14 @@ def _icon(relative_path: str) -> QtGui.QIcon:
 
 
 class TreeView(QtWidgets.QTreeView):
+    load_all_siblings_requested = QtCore.Signal(object)
+    load_more_children_requested = QtCore.Signal(object)
+
     def __init__(self, document: TreeDocument, parent=None):
         super().__init__(parent)
         self.document = document
         self.setModel(document.model)
+        document.model.set_defer_fetch_predicate(self.isExpanded)
         self.setHeaderHidden(False)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setDragEnabled(not document.read_only)
@@ -85,9 +90,106 @@ class TreeView(QtWidgets.QTreeView):
         header.resizeSection(0, 250)
         header.resizeSection(1, 120)
         header.resizeSection(2, 375)
-        self._view_state = ([], [])
+        self._view_state = ([], [], 0, 0)
+        self._restoring_view_state = False
+        self._requesting_scroll_page = False
+        self._handling_page_down = False
         document.model.modelAboutToBeReset.connect(self._capture_view_state)
         document.model.modelReset.connect(self._restore_view_state)
+        self.verticalScrollBar().valueChanged.connect(
+            self._maybe_load_more_at_viewport_end
+        )
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        if (
+            event.key() == QtCore.Qt.Key.Key_End
+            and event.modifiers() == QtCore.Qt.KeyboardModifier.NoModifier
+        ):
+            node = self.model().node(self.currentIndex())
+            if node is not None:
+                self.load_all_siblings_requested.emit(node)
+                event.accept()
+                return
+        if (
+            event.key() == QtCore.Qt.Key.Key_PageDown
+            and event.modifiers() == QtCore.Qt.KeyboardModifier.NoModifier
+        ):
+            candidate = self._page_down_fetch_candidate()
+            self._handling_page_down = True
+            try:
+                if candidate is not None:
+                    self._request_more_children(candidate)
+                super().keyPressEvent(event)
+            finally:
+                self._handling_page_down = False
+            if candidate is None:
+                self._maybe_load_more_at_viewport_end()
+            return
+        super().keyPressEvent(event)
+
+    def _request_more_children(self, parent_node) -> None:
+        if self._requesting_scroll_page:
+            return
+        self._requesting_scroll_page = True
+        try:
+            self.load_more_children_requested.emit(parent_node)
+        finally:
+            self._requesting_scroll_page = False
+
+    def _page_down_fetch_candidate(self):
+        model = self.model()
+        child = self.currentIndex()
+        row_height = max(1, self.sizeHintForRow(0))
+        visible_rows = max(1, self.viewport().height() // row_height)
+        while child.isValid():
+            parent = child.parent()
+            if parent.isValid() and self.isExpanded(parent):
+                rows = model.rowCount(parent)
+                remaining_rows = rows - child.row() - 1
+                if (
+                    remaining_rows <= visible_rows
+                    and model.has_more_children(parent)
+                ):
+                    return model.node(parent)
+            child = parent
+        return None
+
+    def _maybe_load_more_at_viewport_end(self, _value=None) -> None:
+        if self._requesting_scroll_page or self._handling_page_down:
+            return
+        model = self.model()
+        row_height = max(1, self.sizeHintForRow(0))
+        for y in range(self.viewport().height() - 1, -1, -row_height):
+            visible_index = self._index_at_visible_row(y)
+            child = visible_index
+            while child.isValid():
+                parent = child.parent()
+                if (
+                    parent.isValid()
+                    and self.isExpanded(parent)
+                    and child.row() == model.rowCount(parent) - 1
+                    and model.has_more_children(parent)
+                ):
+                    parent_node = model.node(parent)
+                    if parent_node is not None:
+                        self._request_more_children(parent_node)
+                        return
+                child = parent
+
+    def _index_at_visible_row(self, y: int) -> QtCore.QModelIndex:
+        """Find a row using an actually visible column, avoiding blank space."""
+        viewport_width = self.viewport().width()
+        for column in reversed(range(self.model().columnCount())):
+            left = self.header().sectionViewportPosition(column)
+            right = left + self.header().sectionSize(column)
+            left = max(0, left)
+            right = min(viewport_width, right)
+            if left >= right:
+                continue
+            index = self.indexAt(QtCore.QPoint((left + right) // 2, y))
+            if index.isValid():
+                return index
+        return QtCore.QModelIndex()
 
     def _branch_path(self, index: QtCore.QModelIndex) -> list[QtCore.QModelIndex]:
         path = []
@@ -106,6 +208,9 @@ class TreeView(QtWidgets.QTreeView):
             return True
         # A lazy parent may have more children than are currently materialised.
         # Keep the vertical connector open without fetching another page.
+        has_more = getattr(model, "has_more_children", None)
+        if callable(has_more):
+            return bool(has_more(parent))
         return bool(getattr(model, "canFetchMore", lambda _index: False)(parent))
 
     def drawBranches(
@@ -192,10 +297,15 @@ class TreeView(QtWidgets.QTreeView):
                     continue
                 if self.isExpanded(index):
                     expanded.append((node, node.path()))
-                visit(index)
+                    visit(index)
 
         visit(QtCore.QModelIndex())
-        self._view_state = (expanded, [(node, node.path()) for node in selected])
+        self._view_state = (
+            expanded,
+            [(node, node.path()) for node in selected],
+            self.verticalScrollBar().value(),
+            self.horizontalScrollBar().value(),
+        )
 
     def _resolve_path(self, path: str):
         root = self.document.root
@@ -213,30 +323,36 @@ class TreeView(QtWidgets.QTreeView):
     def _restore_view_state(self) -> None:
         if not self._view_state:
             return
-        expanded, selected = self._view_state
-        for old_node, path in expanded:
-            node = old_node if old_node is not None else None
-            if node is None or self.document.model.index_for_node(node).isValid() is False:
-                node = self._resolve_path(path)
-            index = self.document.model.index_for_node(node)
-            if index.isValid():
-                self.expand(index)
-        selection_model = self.selectionModel()
-        selection_model.clearSelection()
-        first = True
-        for old_node, path in selected:
-            node = old_node
-            index = self.document.model.index_for_node(node)
-            if not index.isValid():
-                node = self._resolve_path(path)
+        expanded, selected, vertical_scroll, horizontal_scroll = self._view_state
+        self._restoring_view_state = True
+        try:
+            for old_node, path in expanded:
+                node = old_node if old_node is not None else None
+                if node is None or self.document.model.index_for_node(node).isValid() is False:
+                    node = self._resolve_path(path)
                 index = self.document.model.index_for_node(node)
-            if not index.isValid():
-                continue
-            flags = QtCore.QItemSelectionModel.SelectionFlag.Select
-            if first:
-                flags |= QtCore.QItemSelectionModel.SelectionFlag.Clear
-                first = False
-            selection_model.select(index, flags)
+                if index.isValid():
+                    self.expand(index)
+            selection_model = self.selectionModel()
+            selection_model.clearSelection()
+            first = True
+            for old_node, path in selected:
+                node = old_node
+                index = self.document.model.index_for_node(node)
+                if not index.isValid():
+                    node = self._resolve_path(path)
+                    index = self.document.model.index_for_node(node)
+                if not index.isValid():
+                    continue
+                flags = QtCore.QItemSelectionModel.SelectionFlag.Select
+                if first:
+                    flags |= QtCore.QItemSelectionModel.SelectionFlag.Clear
+                    first = False
+                selection_model.select(index, flags)
+            self.verticalScrollBar().setValue(vertical_scroll)
+            self.horizontalScrollBar().setValue(horizontal_scroll)
+        finally:
+            self._restoring_view_state = False
 
     def selected_nodes(self) -> list:
         nodes = []
@@ -849,6 +965,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _add_document(self, document: TreeDocument) -> None:
         view = DocumentView(document, self)
         view.selection_changed.connect(self.show_node)
+        document.model.children_page_loaded.connect(
+            lambda node, count, view=view: self._children_page_loaded(
+                view, node, count
+            )
+        )
+        view.tree.load_all_siblings_requested.connect(
+            lambda node, view=view: self._load_all_siblings(view, node)
+        )
+        view.tree.load_more_children_requested.connect(
+            lambda node, view=view: self._load_more_children_on_scroll(view, node)
+        )
         view.tree.expanded.connect(
             lambda index, view=view: self._load_remaining_children(view, index)
         )
@@ -1028,15 +1155,17 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             parent = node.parent()
             if parent is None:
-                sibling_count = 0
+                self.siblings_info.setText("Number of siblings: 0")
+                return
+            sibling_count = max(0, len(parent.loaded_children()) - 1)
+            if parent.children_load_state() == "complete":
+                label = f"Number of siblings: {sibling_count}"
             else:
-                child_count = max(
-                    parent.child_count(), len(parent.loaded_children())
+                label = (
+                    f"Loaded siblings: {sibling_count} "
+                    "(more may exist)"
                 )
-                sibling_count = max(
-                    0, child_count - 1
-                )
-            self.siblings_info.setText(f"Number of siblings: {sibling_count}")
+            self.siblings_info.setText(label)
         except Exception:
             self.siblings_info.setText("Number of siblings: unavailable")
 
@@ -1384,41 +1513,184 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage(str(error))
         return True
 
-    def _progress(self, title: str, label: str) -> QtWidgets.QProgressDialog:
-        progress = QtWidgets.QProgressDialog(label, "Cancel", 0, 0, self)
+    def _progress(
+        self,
+        title: str,
+        label: str,
+        *,
+        application_modal: bool = False,
+        cancelable: bool = True,
+    ) -> QtWidgets.QProgressDialog:
+        progress = QtWidgets.QProgressDialog(
+            label, "Cancel" if cancelable else "", 0, 0, self
+        )
+        if not cancelable:
+            progress.setCancelButton(None)
         progress.setWindowTitle(title)
-        progress.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+        progress.setWindowModality(
+            QtCore.Qt.WindowModality.ApplicationModal
+            if application_modal
+            else QtCore.Qt.WindowModality.WindowModal
+        )
         progress.setAutoClose(False)
         progress.setMinimumDuration(0)
         progress.show()
         QtWidgets.QApplication.processEvents()
         return progress
 
+    @contextmanager
+    def _busy_progress(self, title: str, label: str):
+        """Show a non-cancelable modal progress dialog with a wait cursor."""
+        app = QtWidgets.QApplication.instance()
+        progress = None
+        if app is not None:
+            app.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            progress = self._progress(
+                title,
+                label,
+                application_modal=True,
+                cancelable=False,
+            )
+            yield progress
+        finally:
+            if progress is not None:
+                progress.close()
+            if app is not None:
+                app.restoreOverrideCursor()
+
     def _load_remaining_children(self, view: DocumentView, index: QtCore.QModelIndex) -> None:
         """Load later child pages after a branch is unfolded, with progress feedback."""
+        if view.tree._restoring_view_state:
+            return
         model = view.document.model
         node = model.node(index)
-        if node is None or node in self._loading_children or not model.canFetchMore(index):
+        if node is None or node in self._loading_children or not model.has_more_children(index):
             return
 
         self._loading_children.add(node)
-        progress = self._progress(
-            "Loading children", f"Loading children of {node.name()}…"
-        )
-        progress.setRange(0, max(1, node.child_count()))
-        progress.setValue(model.rowCount(index))
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        progress = None
         try:
-            while model.canFetchMore(index) and not progress.wasCanceled():
-                model.fetchMore(index)
-                progress.setValue(model.rowCount(index))
+            progress = self._progress(
+                "Loading children",
+                f"Loading children of {node.name()}…",
+                application_modal=True,
+            )
+            # The indeterminate dialog avoids a synchronous child_count scan.
+            progress.setRange(0, 0)
+            if not progress.wasCanceled():
+                count = model.load_next_children_page(node)
+                model.enable_automatic_fetch(node)
+                progress.setLabelText(
+                    f"Loaded {count} children of {node.name()}…"
+                )
                 QtWidgets.QApplication.processEvents()
         except Exception as error:
             QtWidgets.QMessageBox.warning(
                 self, "Loading children failed", str(error)
             )
         finally:
-            progress.close()
+            if progress is not None:
+                progress.close()
             self._loading_children.discard(node)
+            if app is not None:
+                app.restoreOverrideCursor()
+
+    def _load_more_children_on_scroll(self, view: DocumentView, node) -> None:
+        """Fetch one more child page as the viewport approaches a branch end."""
+        model = view.document.model
+        if node is None or node in self._loading_children:
+            return
+        index = model.index_for_node(node)
+        if not index.isValid() or not model.has_more_children(index):
+            return
+
+        self._loading_children.add(node)
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            count = model.load_next_children_page(node)
+            model.enable_automatic_fetch(node)
+            self.statusBar().showMessage(
+                f"Loaded {count} children of {node.name()}", 2500
+            )
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(
+                self, "Loading children failed", str(error)
+            )
+        finally:
+            self._loading_children.discard(node)
+            if app is not None:
+                app.restoreOverrideCursor()
+
+    def _children_page_loaded(
+        self, view: DocumentView, parent, _loaded_count: int
+    ) -> None:
+        """Refresh sibling metadata when more direct children become visible."""
+        if view is not self.current_view():
+            return
+        selected = self._selected_node
+        if selected is not None and selected.parent() is parent:
+            self._update_sibling_info(selected)
+
+    def _load_all_siblings(self, view: DocumentView, selected_node) -> None:
+        """Load the selected node's remaining siblings and focus the last one."""
+        model = view.document.model
+        parent = (
+            model.root
+            if selected_node is model.root
+            else selected_node.parent()
+        )
+        if parent is None:
+            return
+
+        parent_index = model.index_for_node(parent)
+        if not parent_index.isValid():
+            return
+
+        if model.has_more_children(parent_index):
+            self._loading_children.add(parent)
+            try:
+                with self._busy_progress(
+                    "Loading siblings", f"Loading siblings of {parent.name()}…"
+                ) as progress:
+                    while model.has_more_children(parent_index):
+                        count = model.load_next_children_page(parent)
+                        progress.setLabelText(
+                            f"Loaded {count} siblings of {parent.name()}…"
+                        )
+                        QtWidgets.QApplication.processEvents()
+            except Exception as error:
+                QtWidgets.QMessageBox.warning(
+                    self, "Loading siblings failed", str(error)
+                )
+                return
+            finally:
+                self._loading_children.discard(parent)
+
+        siblings = parent.loaded_children()
+        if not siblings:
+            return
+        last_sibling = siblings[-1]
+        last_index = model.index_for_node(last_sibling)
+        if not last_index.isValid():
+            return
+
+        selection = view.tree.selectionModel()
+        selection.setCurrentIndex(
+            last_index,
+            QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect |
+            QtCore.QItemSelectionModel.SelectionFlag.Rows,
+        )
+        view.tree.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
+        view.tree.scrollTo(
+            last_index, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter
+        )
+        self.show_node(last_sibling)
 
     @staticmethod
     def _walk_nodes(nodes, recursive: bool):
@@ -1632,7 +1904,8 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             progress.setCancelButton(None)
             try:
-                self.search_results = document.find_nodes_by_cgns_type(token)
+                with document.model.external_tree_traversal():
+                    self.search_results = document.find_nodes_by_cgns_type(token)
             finally:
                 progress.close()
         except Exception as error:
@@ -1650,12 +1923,12 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _find_nodes_by_predicate(self, document: TreeDocument, expression: str) -> list:
-        progress = self._progress("Search tree", f"Searching for {expression}…")
-        progress.setCancelButton(None)
-        try:
-            return document.root.pick().all_by_predicate(expression)
-        finally:
-            progress.close()
+        with self._busy_progress(
+            "Searching",
+            f"Searching for {expression}…",
+        ):
+            with document.model.external_tree_traversal():
+                return document.root.pick().all_by_predicate(expression)
 
     def navigate_search(self, step: int) -> None:
         if not self.search_results:
@@ -1825,15 +2098,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if not nodes:
             return
         node = nodes[0]
-        progress = self._progress("Save node", f"Saving {node.name()}…")
         try:
-            for node in nodes:
-                document.save_node_only(node)
+            with self._busy_progress("Save node", f"Saving {node.name()}…"):
+                for node in nodes:
+                    document.save_node_only(node)
             self.statusBar().showMessage(f"Saved {len(nodes)} node(s)")
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save node failed", str(error))
         finally:
-            progress.close()
             self._update_save_node_state()
 
     def dump_current_node_data(self) -> None:
@@ -2254,15 +2526,35 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.plot_window is not None:
             self.plot_window.refresh_sources()
 
-    def _save_document(self, document: TreeDocument) -> bool:
-        progress = self._progress("Save tree", f"Saving {document.title}…")
+    def _run_document_save(self, document: TreeDocument, filename=None) -> None:
+        view = next(
+            (view for view in self.views if view.document is document),
+            None,
+        )
+        tree = view.tree if view is not None else None
+        if tree is not None:
+            tree.setUpdatesEnabled(False)
         try:
-            document.save()
+            with self._busy_progress(
+                "Save tree",
+                f"Saving {Path(filename).name if filename else document.title}…",
+            ) as progress:
+                def report_progress(message: str) -> None:
+                    progress.setLabelText(message)
+                    QtWidgets.QApplication.processEvents()
+
+                document.save(filename, progress_callback=report_progress)
+        finally:
+            if tree is not None:
+                tree.setUpdatesEnabled(True)
+                tree.viewport().update()
+
+    def _save_document(self, document: TreeDocument) -> bool:
+        try:
+            self._run_document_save(document)
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(error))
             return False
-        finally:
-            progress.close()
         return True
 
     def save_current(self) -> None:
@@ -2285,14 +2577,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._save_document_as(document, filename)
 
     def _save_document_as(self, document: TreeDocument, filename: str) -> bool:
-        progress = self._progress("Save tree", f"Saving {Path(filename).name}…")
         try:
-            document.save(filename)
+            self._run_document_save(document, filename)
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Save failed", str(error))
             return False
-        finally:
-            progress.close()
         self.apply_current_tab_title()
         return True
 

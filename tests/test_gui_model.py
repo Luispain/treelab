@@ -48,6 +48,98 @@ def _base(document):
     return base, document.model.index_for_node(base)
 
 
+def test_lazy_branch_visibility_does_not_count_all_children():
+    class LazyNode:
+        def __init__(self, name, node_type, children=(), state="unloaded"):
+            self._name = name
+            self._type = node_type
+            self._children = list(children)
+            self._state = state
+
+        def child_count(self):
+            raise AssertionError("child_count must not run in model visibility checks")
+
+        def loaded_children(self):
+            return self._children
+
+        def children_load_state(self):
+            return self._state
+
+        def type(self):
+            return self._type
+
+        def has_link_target(self):
+            return False
+
+    coordinate = LazyNode("CoordinateX", "DataArray_t")
+    base = LazyNode("Base", "CGNSBase_t", [coordinate])
+    root = LazyNode("CGNSTree", "CGNSTree_t", [base])
+    model = NoderTreeModel(root)
+    base_index = model.index(0, 0, model.index(0, 0))
+    coordinate_index = model.index(0, 0, base_index)
+
+    assert model.hasChildren(base_index)
+    assert model.canFetchMore(base_index)
+    assert not model.hasChildren(coordinate_index)
+    assert not model.canFetchMore(coordinate_index)
+
+
+def test_sibling_summary_does_not_count_unloaded_parent_children(qapp):
+    class Parent:
+        def loaded_children(self):
+            return [object() for _ in range(128)]
+
+        def children_load_state(self):
+            return "partial"
+
+        def child_count(self):
+            raise AssertionError("selection summary must not count lazy siblings")
+
+    class Selected:
+        def parent(self):
+            return Parent()
+
+    window = MainWindow([])
+    window._update_sibling_info(Selected())
+    assert window.siblings_info.text() == "Loaded siblings: 127 (more may exist)"
+    window.close()
+
+
+def test_one_page_child_loading_does_not_count_total():
+    class PagedNode:
+        def __init__(self):
+            self.children = []
+            self.total = 300
+            self.requests = []
+
+        def child_count(self):
+            raise AssertionError("paged loading must not request the total")
+
+        def type(self):
+            return "CGNSTree_t"
+
+        def has_link_target(self):
+            return False
+
+        def loaded_children(self):
+            return self.children
+
+        def children_load_state(self):
+            return "complete" if len(self.children) == self.total else "partial"
+
+        def ensure_children_loaded(self, minimum):
+            self.requests.append(minimum)
+            target = min(self.total, minimum)
+            self.children.extend(range(len(self.children), target))
+
+    node = PagedNode()
+    model = NoderTreeModel(node)
+    assert model.load_next_children_page(node) == 128
+    assert node.requests == [128]
+    assert node.children_load_state() == "partial"
+    assert len(node.children) == 128
+
+
 def _write_cgns_type_inspector_file(filename):
     h5py = pytest.importorskip("h5py")
     with h5py.File(filename, "w", track_order=True) as h5file:
@@ -253,19 +345,62 @@ def test_search_selects_all_matches_and_f3_only_moves_focus(tmp_path, qapp, monk
     progress_titles = []
     original_progress = window._progress
 
-    def tracked_progress(title, label):
+    def tracked_progress(title, label, **kwargs):
         progress_titles.append(title)
-        return original_progress(title, label)
+        return original_progress(title, label, **kwargs)
 
     monkeypatch.setattr(window, "_progress", tracked_progress)
     window.search_nodes()
-    assert "Search tree" in progress_titles
+    assert "Searching" in progress_titles
     tree = window.current_view().tree
     assert [node.name() for node in tree.selected_nodes()] == ["Zone0", "Zone1", "Zone2"]
     window.navigate_search(1)
     assert [node.name() for node in tree.selected_nodes()] == ["Zone0", "Zone1", "Zone2"]
     assert tree.model().node(tree.currentIndex()).name() == "Zone1"
     window.current_document().dirty = False
+    window.close()
+
+
+def test_search_reveals_match_outside_loaded_child_page(tmp_path, qapp, monkeypatch):
+    filename = tmp_path / "search-lazy-page.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    base = Node("Base", "CGNSBase_t")
+    for index in range(300):
+        base.add_child(Node(f"zone_{index}", "Zone_t"))
+    root.add_child(base)
+    root.write(str(filename))
+
+    monkeypatch.setattr(
+        QtWidgets.QInputDialog,
+        "getText",
+        staticmethod(lambda *args, **kwargs: ("/n:zone_299", True)),
+    )
+    window = MainWindow([str(filename)])
+    window.show()
+    qapp.processEvents()
+    document = window.current_document()
+    tree = window.current_view().tree
+    base = document.root.get_at_path("Base")
+    base_index = document.model.index_for_node(base)
+    tree.expand(base_index)
+    qapp.processEvents()
+    assert base.children_load_state() == "partial"
+    assert document.model.rowCount(base_index) < 300
+
+    window.search_nodes()
+    qapp.processEvents()
+
+    target = document.root.get_at_path("Base/zone_299")
+    target_index = document.model.index_for_node(target)
+    assert [node.name() for node in tree.selected_nodes()] == ["zone_299"]
+    assert document.model.node(tree.currentIndex()) is target
+    assert not tree.visualRect(target_index).isEmpty()
+    assert tree.verticalScrollBar().value() > 0
+
+    window.navigate_search(1)
+    qapp.processEvents()
+    assert document.model.node(tree.currentIndex()) is target
+    assert not tree.visualRect(target_index).isEmpty()
     window.close()
 
 
@@ -803,7 +938,7 @@ def test_cgns_library_version_is_visible_and_counted_as_sibling(tmp_path, qapp):
     window.close()
 
 
-def test_expanding_large_branch_shows_progress_and_loads_all_children(
+def test_expanding_large_branch_shows_progress_and_loads_children_in_pages(
     tmp_path, qapp
 ):
     filename = tmp_path / "large-branch.cgns"
@@ -814,6 +949,8 @@ def test_expanding_large_branch_shows_progress_and_loads_all_children(
     root.add_child(branch)
     root.write(str(filename))
     window = MainWindow([str(filename)])
+    window.show()
+    qapp.processEvents()
     document = window.current_document()
     tree = window.current_view().tree
     branch_index = document.model.index_for_node(document.root.get_at_path("Branch"))
@@ -821,17 +958,57 @@ def test_expanding_large_branch_shows_progress_and_loads_all_children(
     progress_titles = []
     original_progress = window._progress
 
-    def tracked_progress(title, label):
+    def tracked_progress(title, label, **kwargs):
         progress_titles.append(title)
-        return original_progress(title, label)
+        return original_progress(title, label, **kwargs)
 
     window._progress = tracked_progress
     tree.expand(branch_index)
     qapp.processEvents()
 
     assert "Loading children" in progress_titles
-    assert document.model.rowCount(branch_index) == 300
-    assert document.root.get_at_path("Branch").children_load_state() == "complete"
+    assert document.model.rowCount(branch_index) >= document.model.PAGE_SIZE
+    assert document.model.rowCount(branch_index) < 300
+    assert document.root.get_at_path("Branch").children_load_state() == "partial"
+    window.close()
+
+
+def test_expanding_nested_lazy_node_keeps_ancestor_rows_visible(tmp_path, qapp):
+    filename = tmp_path / "nested-lazy-expand.cgns"
+    root = Node("CGNSTree", "CGNSTree_t")
+    base = Node("Base", "CGNSBase_t")
+    zone = Node("zone_0", "Zone_t")
+    coordinates = Node("GridCoordinates", "GridCoordinates_t")
+    coordinates.add_child(Node("CoordinateX", "DataArray_t"))
+    zone.add_child(coordinates)
+    base.add_child(zone)
+    root.add_child(base)
+    root.write(str(filename))
+
+    window = MainWindow([str(filename)])
+    window.show()
+    qapp.processEvents()
+    document = window.current_document()
+    tree = window.current_view().tree
+    base = document.root.get_at_path("Base")
+    base_index = document.model.index_for_node(base)
+    tree.expand(base_index)
+    qapp.processEvents()
+
+    zone = base.loaded_children()[0]
+    zone_index = document.model.index_for_node(zone)
+    tree.expand(zone_index)
+    qapp.processEvents()
+
+    root_index = document.model.index(0, 0)
+    base_index = document.model.index_for_node(base)
+    zone_index = document.model.index_for_node(zone)
+    assert tree.isExpanded(root_index)
+    assert tree.isExpanded(base_index)
+    assert tree.isExpanded(zone_index)
+    assert not tree.visualRect(root_index).isEmpty()
+    assert not tree.visualRect(base_index).isEmpty()
+    assert not tree.visualRect(zone_index).isEmpty()
     window.close()
 
 

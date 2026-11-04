@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 import numpy as np
 
 from PySide6 import QtCore
@@ -115,7 +116,7 @@ class TreeDocument(QtCore.QObject):
         self.changed.emit()
         self.model.layoutChanged.emit()
 
-    def save(self, filename: str | None = None) -> None:
+    def save(self, filename: str | None = None, *, progress_callback=None) -> None:
         if self.read_only:
             raise PermissionError("This tree was opened read-only")
         if filename:
@@ -125,10 +126,13 @@ class TreeDocument(QtCore.QObject):
             raise ValueError("No output filename was selected")
 
         if not self.requires_full_write and self._payload_dirty:
-            for node in self._payload_dirty.values():
+            nodes = list(self._payload_dirty.values())
+            for index, node in enumerate(nodes, start=1):
+                if progress_callback is not None:
+                    progress_callback(f"Saving changed payloads ({index}/{len(nodes)})…")
                 self._save_targeted_node(node)
         else:
-            self._write_full_file()
+            self._write_full_file(progress_callback=progress_callback)
         self.dirty = False
         self.requires_full_write = False
         self._payload_dirty.clear()
@@ -160,23 +164,64 @@ class TreeDocument(QtCore.QObject):
             node.data()
         node.save_this_node_only(self.filename)
 
-    def _write_full_file(self) -> None:
+    def _write_full_file(self, *, progress_callback=None) -> None:
         model = self.model
         # Materialise before closing the reader; otherwise lazy nodes would
         # quite correctly reject payload access after their file is closed.
-        self._materialise(self.root)
-        self._detach_expansions(self.root)
+        self._materialise(self.root, progress_callback=progress_callback)
+        self._detach_expansions(self.root, progress_callback=progress_callback)
         if self.reader is not None:
             self.reader.close()
             self.reader = None
         self._close_linked_readers()
-        self.root.write(self.filename)
+        if progress_callback is not None:
+            progress_callback("Writing the CGNS/HDF5 file…")
+        self._write_root_in_background(progress_callback)
+        if progress_callback is not None:
+            progress_callback("Reopening the saved tree…")
         self._load_file(self.filename)
         if model is not None:
             self.model = model
             model.set_root(self.root)
 
-    def _materialise(self, node) -> None:
+    def _write_root_in_background(self, progress_callback=None) -> None:
+        root = self.root
+        filename = self.filename
+        if progress_callback is None:
+            root.write(filename)
+            return
+
+        errors = []
+
+        def write_tree() -> None:
+            try:
+                root.write(filename)
+            except BaseException as error:
+                errors.append(error)
+
+        writer = threading.Thread(
+            target=write_tree,
+            name="treelab-cgns-writer",
+        )
+        writer.start()
+        try:
+            while writer.is_alive():
+                progress_callback("Writing the CGNS/HDF5 file…")
+                writer.join(timeout=0.1)
+        finally:
+            writer.join()
+        if errors:
+            raise errors[0]
+
+    def _materialise(self, node, *, progress_callback=None, state=None) -> None:
+        if state is None:
+            state = {"visited": 0, "metadata_batches": 0}
+        state["visited"] += 1
+        if progress_callback is not None and state["visited"] % 32 == 0:
+            progress_callback(
+                f"Preparing tree for save… {state['visited']:,} nodes inspected"
+            )
+
         if node.has_link_target():
             # Children exposed by the lazy reader belong to the remote target,
             # not to the link node in this file. Discard loaded target rows so
@@ -185,18 +230,48 @@ class TreeDocument(QtCore.QObject):
                 child.detach()
             node.clear_expansion()
             return
-        node.ensure_children_loaded()
+
+        while node.children_load_state() != "complete":
+            previous_count = len(node.loaded_children())
+            node.ensure_children_loaded(previous_count + self.model.PAGE_SIZE)
+            state["metadata_batches"] += 1
+            loaded_count = len(node.loaded_children())
+            if progress_callback is not None and (
+                state["metadata_batches"] % 16 == 0
+                or loaded_count - previous_count >= self.model.PAGE_SIZE
+            ):
+                progress_callback(
+                    f"Loading children of {node.name()}… "
+                    f"{loaded_count:,} loaded"
+                )
         if node.has_data():
             node.data()
         for child in node.loaded_children():
-            self._materialise(child)
+            self._materialise(
+                child,
+                progress_callback=progress_callback,
+                state=state,
+            )
 
-    def _detach_expansions(self, node) -> None:
+    def _detach_expansions(self, node, *, progress_callback=None, state=None) -> None:
+        if state is None:
+            state = {"visited": 0}
+        state["visited"] += 1
+        if progress_callback is not None and state["visited"] % 32 == 0:
+            progress_callback(
+                f"Finalizing tree metadata… {state['visited']:,} nodes"
+            )
         for child in node.loaded_children():
-            self._detach_expansions(child)
+            self._detach_expansions(
+                child,
+                progress_callback=progress_callback,
+                state=state,
+            )
         node.clear_expansion()
 
     def close(self) -> None:
+        if self.model is not None:
+            self.model.set_fetching_enabled(False)
         if self.reader is not None:
             self.reader.close()
             self.reader = None

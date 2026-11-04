@@ -32,6 +32,7 @@ class LinkTargetDialog(QtWidgets.QDialog):
         self.setWindowTitle(f"Select link target — {Path(filename).name}")
         self.resize(800, 620)
         self.target_node_path: str | None = None
+        self._loading_children = set()
         self.document = TreeDocument(
             filename, read_only=True, safe_mode=safe_mode, parent=self
         )
@@ -87,30 +88,50 @@ class LinkTargetDialog(QtWidgets.QDialog):
 
     def _load_remaining_children(self, index: QtCore.QModelIndex) -> None:
         """Load node metadata in pages, leaving every payload lazy."""
+        if self.tree._restoring_view_state:
+            return
         model = self.document.model
         node = model.node(index)
-        if node is None or not model.canFetchMore(index):
+        if (
+            node is None
+            or node in self._loading_children
+            or not model.has_more_children(index)
+        ):
             return
-        progress = QtWidgets.QProgressDialog(
-            f"Loading children of {node.name()}…", "Cancel", 0,
-            max(1, node.child_count()), self,
-        )
-        progress.setWindowTitle("Loading target tree")
-        progress.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.setAutoClose(False)
-        progress.show()
+        self._loading_children.add(node)
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        progress = None
         try:
-            while model.canFetchMore(index) and not progress.wasCanceled():
-                model.fetchMore(index)
-                progress.setValue(model.rowCount(index))
+            progress = QtWidgets.QProgressDialog(
+                f"Loading children of {node.name()}…", "Cancel", 0, 0, self,
+            )
+            progress.setWindowTitle("Loading target tree")
+            progress.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(False)
+            progress.show()
+            if not progress.wasCanceled():
+                count = model.load_next_children_page(node)
+                model.enable_automatic_fetch(node)
+                progress.setLabelText(
+                    f"Loaded {count} children of {node.name()}…"
+                )
                 QtWidgets.QApplication.processEvents()
         except Exception as error:
             QtWidgets.QMessageBox.warning(
                 self, "Loading target tree failed", str(error)
             )
         finally:
-            progress.close()
+            if progress is not None:
+                progress.close()
+            self._loading_children.discard(node)
+            if app is not None:
+                app.restoreOverrideCursor()
+            index = model.index_for_node(node)
+            if index.isValid():
+                self.tree.expand(index)
 
     def accept_selected_node(self) -> None:
         nodes = self.tree.selected_nodes()

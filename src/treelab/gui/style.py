@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -225,6 +227,15 @@ def palette_is_dark(widget_or_app) -> bool:
 
 def system_prefers_dark(app: QtWidgets.QApplication) -> bool:
     """Return the operating system's preferred light/dark color scheme."""
+    gtk_theme = None
+    if sys.platform.startswith("linux"):
+        preference = _gsettings_value("color-scheme")
+        if preference in {"prefer-dark", "dark"}:
+            return True
+        if preference in {"prefer-light", "light"}:
+            return False
+        gtk_theme = _gsettings_value("gtk-theme")
+
     color_scheme = getattr(app.styleHints(), "colorScheme", None)
     if callable(color_scheme):
         scheme = color_scheme()
@@ -233,9 +244,34 @@ def system_prefers_dark(app: QtWidgets.QApplication) -> bool:
         light_scheme = getattr(color_scheme_enum, "Light", None)
         if scheme == dark_scheme:
             return True
+        if gtk_theme and "dark" in gtk_theme.casefold():
+            return True
         if scheme == light_scheme:
             return False
+
+    if gtk_theme:
+        return "dark" in gtk_theme.casefold()
     return app.palette().color(QtGui.QPalette.ColorRole.Window).value() < 128
+
+
+def _gsettings_value(key: str) -> str | None:
+    """Read a GNOME interface preference when gsettings is available."""
+    try:
+        result = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", key],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return value
 
 
 def make_theme_icon(dark: bool) -> QtGui.QIcon:
