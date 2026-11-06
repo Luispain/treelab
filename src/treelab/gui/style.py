@@ -8,28 +8,44 @@ import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+MOLA_LIGHT = "#40e0d0"
+MOLA_DARK = "#25766e"
+MONOKAI_BACKGROUND = "#272822"
+MONOKAI_BACKGROUND_ALT = "#2e2f29"
+MONOKAI_INPUT = "#3c3d37"
+MONOKAI_SURFACE = "#3e3d32"
+MONOKAI_SELECTION = "#49483e"
+MONOKAI_FOREGROUND = "#f8f8f2"
+MONOKAI_MUTED = "#75715e"
+MONOKAI_ACCENT = "#a6e22e"
+MONOKAI_PINK = "#f92672"
+MONOKAI_ORANGE = "#fd971f"
+MONOKAI_YELLOW = "#e6db74"
+MONOKAI_CYAN = "#66d9ef"
+MONOKAI_PURPLE = "#ae81ff"
+MONOKAI_BRANCH = "#a59f85"
 
 _DARK_COLORS = {
-    QtGui.QPalette.ColorRole.Window: "#202124",
-    QtGui.QPalette.ColorRole.WindowText: "#f1f3f4",
-    QtGui.QPalette.ColorRole.Base: "#17181a",
-    QtGui.QPalette.ColorRole.AlternateBase: "#242528",
-    QtGui.QPalette.ColorRole.Text: "#f1f3f4",
-    QtGui.QPalette.ColorRole.Button: "#2b2d30",
-    QtGui.QPalette.ColorRole.ButtonText: "#f1f3f4",
-    QtGui.QPalette.ColorRole.BrightText: "#ffffff",
-    QtGui.QPalette.ColorRole.Light: "#777c83",
-    QtGui.QPalette.ColorRole.Midlight: "#5a6066",
-    QtGui.QPalette.ColorRole.Dark: "#151619",
-    QtGui.QPalette.ColorRole.Mid: "#4b5056",
-    QtGui.QPalette.ColorRole.Shadow: "#0c0d0f",
-    QtGui.QPalette.ColorRole.Highlight: "#3d6ea8",
-    QtGui.QPalette.ColorRole.HighlightedText: "#ffffff",
-    QtGui.QPalette.ColorRole.Link: "#75bfff",
-    QtGui.QPalette.ColorRole.LinkVisited: "#b58cff",
-    QtGui.QPalette.ColorRole.PlaceholderText: "#8b8d92",
-    QtGui.QPalette.ColorRole.ToolTipBase: "#2b2d30",
-    QtGui.QPalette.ColorRole.ToolTipText: "#ffffff",
+    QtGui.QPalette.ColorRole.Window: MONOKAI_BACKGROUND,
+    QtGui.QPalette.ColorRole.WindowText: MONOKAI_FOREGROUND,
+    QtGui.QPalette.ColorRole.Base: MONOKAI_BACKGROUND,
+    QtGui.QPalette.ColorRole.AlternateBase: MONOKAI_BACKGROUND_ALT,
+    QtGui.QPalette.ColorRole.Text: MONOKAI_FOREGROUND,
+    QtGui.QPalette.ColorRole.Button: MONOKAI_SURFACE,
+    QtGui.QPalette.ColorRole.ButtonText: MONOKAI_FOREGROUND,
+    QtGui.QPalette.ColorRole.BrightText: MONOKAI_PINK,
+    QtGui.QPalette.ColorRole.Light: "#8a8673",
+    QtGui.QPalette.ColorRole.Midlight: MONOKAI_SURFACE,
+    QtGui.QPalette.ColorRole.Dark: "#1e1f1c",
+    QtGui.QPalette.ColorRole.Mid: MONOKAI_SELECTION,
+    QtGui.QPalette.ColorRole.Shadow: "#1a1b17",
+    QtGui.QPalette.ColorRole.Highlight: MONOKAI_SELECTION,
+    QtGui.QPalette.ColorRole.HighlightedText: MONOKAI_FOREGROUND,
+    QtGui.QPalette.ColorRole.Link: MONOKAI_CYAN,
+    QtGui.QPalette.ColorRole.LinkVisited: MONOKAI_PURPLE,
+    QtGui.QPalette.ColorRole.PlaceholderText: "#a59f85",
+    QtGui.QPalette.ColorRole.ToolTipBase: MONOKAI_SURFACE,
+    QtGui.QPalette.ColorRole.ToolTipText: MONOKAI_FOREGROUND,
 }
 
 _LIGHT_COLORS = {
@@ -58,115 +74,152 @@ _LIGHT_COLORS = {
 
 _DARK_STYLESHEET = """
 QMainWindow, QDialog, QDockWidget, QWidget {
-    color: #f1f3f4;
+    color: #f8f8f2;
 }
 QDialog, QMessageBox, QInputDialog, QFileDialog {
-    background: #202124;
-    color: #f1f3f4;
+    background: #272822;
+    color: #f8f8f2;
 }
 QMessageBox QLabel, QInputDialog QLabel, QFileDialog QLabel {
     background: transparent;
-    color: #f1f3f4;
+    color: #f8f8f2;
 }
 QDialogButtonBox QPushButton, QMessageBox QPushButton {
-    background: #2b2d30;
-    color: #f1f3f4;
-    border: 1px solid #5a5f66;
+    background: #3e3d32;
+    color: #f8f8f2;
+    border: 1px solid #75715e;
     padding: 3px 10px;
 }
 QMenuBar, QMenu, QToolBar, QStatusBar {
-    background: #202124;
-    color: #f1f3f4;
+    background: #272822;
+    color: #f8f8f2;
 }
 QMenuBar::item, QMenu::item {
     background: transparent;
-    color: #f1f3f4;
+    color: #f8f8f2;
 }
 QMenuBar::item:selected, QMenu::item:selected {
-    background: #3d6ea8;
-    color: #ffffff;
+    background: #49483e;
+    color: #f8f8f2;
 }
 QMenu::separator {
     height: 1px;
-    background: #4b5056;
+    background: #49483e;
     margin: 4px 8px;
 }
 QTabWidget::pane, QTabBar::tab {
-    background: #202124;
-    color: #f1f3f4;
-    border: 1px solid #4b5056;
+    background: #272822;
+    color: #f8f8f2;
+    border: 1px solid #49483e;
 }
 QTabBar::tab {
     padding: 5px 8px;
     min-height: 20px;
 }
 QTabBar::tab:selected {
-    background: #2b2d30;
-    color: #ffffff;
+    background: #3e3d32;
+    color: #f8f8f2;
+}
+QDockWidget::title {
+    background: #3e3d32;
+    color: #f8f8f2;
+    padding: 4px;
+}
+QDockWidget::close-button, QDockWidget::float-button {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    width: 16px;
+    height: 16px;
+}
+QDockWidget::close-button {
+    image: url(__TREELAB_DOCK_CLOSE_ICON__);
+}
+QDockWidget::float-button {
+    image: url(__TREELAB_DOCK_FLOAT_ICON__);
+}
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+    background: #49483e;
+    border-color: #a6e22e;
 }
 QHeaderView, QHeaderView::section, QTableCornerButton::section {
-    background: #2b2d30;
-    color: #f1f3f4;
-    border: 1px solid #4b5056;
+    background: #3e3d32;
+    color: #f8f8f2;
+    border: 1px solid #49483e;
     padding: 3px;
 }
 QAbstractScrollArea, QAbstractItemView {
-    background: #17181a;
+    background: #272822;
 }
 QTreeView, QTableView, QTableWidget, QListView, QPlainTextEdit, QTextEdit,
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    background: #17181a;
-    color: #f1f3f4;
-    selection-background-color: #3d6ea8;
-    selection-color: #ffffff;
+    background: #272822;
+    color: #f8f8f2;
+    selection-background-color: #49483e;
+    selection-color: #f8f8f2;
 }
 QLineEdit, QComboBox {
     min-height: 20px;
+}
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background: __MONOKAI_INPUT__;
 }
 QSpinBox, QDoubleSpinBox {
     min-height: 18px;
 }
 QTreeView, QTableView, QTableWidget {
-    alternate-background-color: #242528;
+    alternate-background-color: #2e2f29;
 }
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox,
 QPushButton, QToolButton {
-    border: 1px solid #5a5f66;
+    border: 1px solid #75715e;
     border-radius: 2px;
 }
 QPushButton, QToolButton {
-    background: #2b2d30;
-    color: #f1f3f4;
+    background: #3e3d32;
+    color: #f8f8f2;
 }
 QPushButton {
     min-height: 18px;
 }
 QToolBar QToolButton {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
     padding: 1px 1px;
     margin: 0px;
     min-width: 25px;
 }
+QToolBar::separator {
+    background: #a59f85;
+    width: 2px;
+    margin: 5px 5px;
+}
 QPushButton:hover, QToolButton:hover {
-    background: #3a3d41;
+    background: #49483e;
 }
 QPushButton:pressed, QToolButton:pressed {
-    background: #3d6ea8;
+    background: #a6e22e;
+    color: #1e1f1c;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border-color: #a6e22e;
 }
 QPushButton:disabled, QToolButton:disabled, QComboBox:disabled,
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
-    color: #85888c;
-    background: #242528;
-    border-color: #3a3d41;
+    color: #a59f85;
+    background: #2e2f29;
+    border-color: #49483e;
 }
 QComboBox QAbstractItemView {
-    background: #17181a;
-    color: #f1f3f4;
-    selection-background-color: #3d6ea8;
-    selection-color: #ffffff;
+    background: #272822;
+    color: #f8f8f2;
+    selection-background-color: #49483e;
+    selection-color: #f8f8f2;
 }
 QComboBox::drop-down {
-    background: #2b2d30;
-    border-left: 1px solid #5a5f66;
+    background: #3e3d32;
+    border-left: 1px solid #75715e;
     width: 20px;
 }
 QComboBox::down-arrow {
@@ -175,33 +228,47 @@ QComboBox::down-arrow {
     height: 6px;
 }
 QRadioButton, QCheckBox {
-    color: #f1f3f4;
+    color: #f8f8f2;
 }
 QScrollBar:vertical, QScrollBar:horizontal {
-    background: #17181a;
-    border: 1px solid #3a3d41;
+    background: #1e1f1c;
+    border: 1px solid #49483e;
+}
+QScrollBar:vertical {
+    width: 14px;
+}
+QScrollBar:horizontal {
+    height: 14px;
 }
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
-    background: #5a5f66;
-    min-height: 18px;
-    min-width: 18px;
+    background: #a59f85;
+    border: 1px solid #c5c09a;
+    border-radius: 4px;
+    min-height: 24px;
+    min-width: 24px;
 }
 QScrollBar::handle:hover {
-    background: #777c83;
+    background: #f8f8f2;
+}
+QScrollBar::handle:pressed {
+    background: #a6e22e;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: transparent;
 }
 QProgressBar {
-    background: #17181a;
-    color: #f1f3f4;
-    border: 1px solid #5a5f66;
+    background: #272822;
+    color: #f8f8f2;
+    border: 1px solid #75715e;
     text-align: center;
 }
 QProgressBar::chunk {
-    background: #3d6ea8;
+    background: #a6e22e;
 }
 QToolTip {
-    background: #2b2d30;
-    color: #ffffff;
-    border: 1px solid #777c83;
+    background: #3e3d32;
+    color: #f8f8f2;
+    border: 1px solid #a59f85;
 }
 """
 
@@ -213,10 +280,27 @@ def _dark_stylesheet() -> str:
         / "OwnIcons"
         / "combo-down-arrow-dark.svg"
     )
+    close_icon_path = (
+        Path(__file__).resolve().parent
+        / "icons"
+        / "OwnIcons"
+        / "dock-close-dark.svg"
+    )
+    float_icon_path = (
+        Path(__file__).resolve().parent
+        / "icons"
+        / "OwnIcons"
+        / "dock-float-dark.svg"
+    )
     # Qt's stylesheet image loader accepts the native absolute path here;
     # using a file:// URL is not supported consistently by all Qt styles.
     arrow_url = f'"{arrow_path.as_posix()}"'
-    return _DARK_STYLESHEET.replace("__TREELAB_DARK_COMBO_ARROW__", arrow_url)
+    return (
+        _DARK_STYLESHEET.replace("__TREELAB_DARK_COMBO_ARROW__", arrow_url)
+        .replace("__MONOKAI_INPUT__", MONOKAI_INPUT)
+        .replace("__TREELAB_DOCK_CLOSE_ICON__", f'"{close_icon_path.as_posix()}"')
+        .replace("__TREELAB_DOCK_FLOAT_ICON__", f'"{float_icon_path.as_posix()}"')
+    )
 
 
 def palette_is_dark(widget_or_app) -> bool:
@@ -281,7 +365,7 @@ def make_theme_icon(dark: bool) -> QtGui.QIcon:
     painter = QtGui.QPainter(pixmap)
     painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
     if dark:
-        color = QtGui.QColor("#f6c453")
+        color = QtGui.QColor(MONOKAI_YELLOW)
         painter.setPen(QtGui.QPen(color, 2))
         painter.setBrush(color)
         painter.drawEllipse(QtCore.QRectF(7, 7, 10, 10))
@@ -329,8 +413,8 @@ def _apply_palette(
 
 
 def apply_fixed_dark_palette(app: QtWidgets.QApplication) -> None:
-    """Apply TreeLab's retained dark palette using the native Qt style."""
-    _apply_palette(app, _DARK_COLORS, "#85888c", _dark_stylesheet())
+    """Apply TreeLab's Monokai-inspired dark palette on every platform."""
+    _apply_palette(app, _DARK_COLORS, "#a59f85", _dark_stylesheet())
 
 
 def apply_fixed_light_palette(app: QtWidgets.QApplication) -> None:

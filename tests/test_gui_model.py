@@ -182,7 +182,7 @@ def test_fixed_light_palette_covers_native_state_groups(qapp):
 def test_dark_palette_and_toolbar_theme_switcher(qapp):
     apply_fixed_dark_palette(qapp)
     assert palette_is_dark(qapp)
-    assert qapp.palette().color(QtGui.QPalette.ColorRole.Base).name() == "#17181a"
+    assert qapp.palette().color(QtGui.QPalette.ColorRole.Base).name() == "#272822"
     assert "QMenuBar" in qapp.styleSheet()
 
     window = MainWindow([])

@@ -33,6 +33,7 @@ class TreeDocument(QtCore.QObject):
         self.safe_mode = safe_mode
         self.reader = None
         self._linked_readers = []
+        self._linked_reader_files = []
         self.root = None
         self.model = None
         self.dirty = False
@@ -277,11 +278,19 @@ class TreeDocument(QtCore.QObject):
             self.reader = None
         self._close_linked_readers()
 
-    def retain_link_reader(self, reader) -> None:
+    def retain_link_reader(self, reader, *, cleanup_filename: str | None = None) -> None:
         """Keep an external lazy reader alive while imported nodes use it."""
         self._linked_readers.append(reader)
+        if cleanup_filename and cleanup_filename not in self._linked_reader_files:
+            self._linked_reader_files.append(cleanup_filename)
 
     def _close_linked_readers(self) -> None:
         readers, self._linked_readers = self._linked_readers, []
         for reader in readers:
             reader.close()
+        filenames, self._linked_reader_files = self._linked_reader_files, []
+        for filename in filenames:
+            try:
+                Path(filename).unlink(missing_ok=True)
+            except OSError:
+                pass

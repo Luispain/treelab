@@ -16,7 +16,18 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from . import pyqtgraph_compat as pg_compat
-from .style import palette_is_dark
+from .style import (
+    MONOKAI_ACCENT,
+    MONOKAI_BACKGROUND,
+    MONOKAI_CYAN,
+    MONOKAI_FOREGROUND,
+    MONOKAI_ORANGE,
+    MONOKAI_PINK,
+    MONOKAI_PURPLE,
+    MONOKAI_SURFACE,
+    MONOKAI_YELLOW,
+    palette_is_dark,
+)
 
 
 PLOT_COLORS = (
@@ -30,14 +41,14 @@ PLOT_COLORS = (
     "#17becf",
 )
 PLOT_COLORS_DARK = (
-    "#66b3ff",
-    "#ffb366",
-    "#6ee7a0",
-    "#ff7180",
-    "#c5a3ff",
-    "#d5a679",
-    "#ff9dd2",
-    "#66e0e6",
+    MONOKAI_CYAN,
+    MONOKAI_ORANGE,
+    MONOKAI_ACCENT,
+    MONOKAI_PINK,
+    MONOKAI_PURPLE,
+    MONOKAI_YELLOW,
+    MONOKAI_FOREGROUND,
+    "#a1efe4",
 )
 INDEX_LABEL = "index"
 LINE_STYLES = ("-", "--", ":", ".-")
@@ -368,7 +379,7 @@ class CurveRow(QtWidgets.QWidget):
         self.line_style_combo.setToolTip("Change curve line style")
         layout.addWidget(self.line_style_combo)
         remove = QtWidgets.QToolButton(self)
-        remove.setIcon(_icon("OwnIcons/remove-curve-16.png"))
+        remove.setIcon(_icon("fugue-icons-3.5.6/bin-metal.png"))
         remove.setToolTip("Remove curve")
         layout.addWidget(remove)
 
@@ -530,23 +541,27 @@ class PlotWindow(QtWidgets.QMainWindow):
         toolbar.setIconSize(QtCore.QSize(22, 22))
         self.addToolBar(toolbar)
 
-        action_x = QtGui.QAction(_icon("OwnIcons/x-16.png"), "Add selected to X", self)
+        action_x = QtGui.QAction(_icon("OwnIcons/x.svg"), "Add selected to X", self)
         action_x.setToolTip("Add selected node(s) to the X source list")
         action_x.triggered.connect(self.add_selected_to_x)
         toolbar.addAction(action_x)
-        action_y = QtGui.QAction(_icon("OwnIcons/y-16.png"), "Add selected to Y", self)
+        action_y = QtGui.QAction(_icon("OwnIcons/y.svg"), "Add selected to Y", self)
         action_y.setToolTip("Add selected node(s) to the Y source list")
         action_y.triggered.connect(self.add_selected_to_y)
         toolbar.addAction(action_y)
         toolbar.addSeparator()
-        action_curve = QtGui.QAction(_icon("OwnIcons/add-curve-16.png"), "Add curve", self)
+        action_curve = QtGui.QAction(_icon("OwnIcons/add-curve.svg"), "Add curve", self)
         action_curve.triggered.connect(self.add_curve)
         toolbar.addAction(action_curve)
-        action_draw = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Draw curves", self)
+        action_draw = QtGui.QAction(_icon("OwnIcons/see-curve.svg"), "Draw curves", self)
         action_draw.triggered.connect(self.draw)
         toolbar.addAction(action_draw)
         toolbar.addSeparator()
-        action_clear = QtGui.QAction("Clear", self)
+        action_clear = QtGui.QAction(
+            _icon("fugue-icons-3.5.6/bin-metal.png"), "", self
+        )
+        action_clear.setToolTip("Clear plot session")
+        action_clear.setStatusTip("Clear all plot sources and curves")
         action_clear.triggered.connect(self.clear_session)
         toolbar.addAction(action_clear)
         toolbar.addSeparator()
@@ -598,10 +613,10 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.main_item.showAxis("right")
         self.main_item.getAxis("right").linkToView(self.y2_view)
         self.main_item.getAxis("right").setPen(
-            "#ff7180" if self.dark_mode else "#d62728"
+            MONOKAI_PINK if self.dark_mode else "#d62728"
         )
         self.main_item.getAxis("right").setTextPen(
-            "#ff7180" if self.dark_mode else "#d62728"
+            MONOKAI_PINK if self.dark_mode else "#d62728"
         )
         self.y2_view.setXLink(self.main_view)
         self.y2_view.setMouseEnabled(x=False, y=True)
@@ -636,9 +651,9 @@ class PlotWindow(QtWidgets.QMainWindow):
     def _configure_plot(
         plot: pg.PlotWidget, *, show_y: bool, dark: bool = False
     ) -> None:
-        background = "#17181a" if dark else "#ffffff"
-        foreground = "#e8eaed" if dark else "#202124"
-        axis_color = "#aeb4bb" if dark else "#444444"
+        background = MONOKAI_BACKGROUND if dark else "#ffffff"
+        foreground = MONOKAI_FOREGROUND if dark else "#202124"
+        axis_color = "#a59f85" if dark else "#444444"
         plot.setBackground(background)
         plot.showGrid(x=True, y=show_y, alpha=0.18)
         plot.hideButtons()
@@ -661,9 +676,9 @@ class PlotWindow(QtWidgets.QMainWindow):
     def _apply_plot_theme(self) -> None:
         """Update pyqtgraph's scene colors to follow TreeLab's palette."""
         dark = self.dark_mode
-        foreground = "#e8eaed" if dark else "#202124"
-        axis_color = "#aeb4bb" if dark else "#444444"
-        right_axis_color = "#ff7180" if dark else "#d62728"
+        foreground = MONOKAI_FOREGROUND if dark else "#202124"
+        axis_color = "#a59f85" if dark else "#444444"
+        right_axis_color = MONOKAI_PINK if dark else "#d62728"
         self._configure_plot(self.main_plot, show_y=True, dark=dark)
         self._configure_plot(self.overview_plot, show_y=False, dark=dark)
         for axis_name in ("bottom", "left", "right"):
@@ -675,8 +690,8 @@ class PlotWindow(QtWidgets.QMainWindow):
         self.crosshair.setPen(pg.mkPen(axis_color, width=1))
         self.hover_label.setStyleSheet(
             (
-                "background: rgba(43,45,48,240); color: #f1f3f4; "
-                "border: 1px solid #777c83; padding: 3px;"
+                "background: rgba(62,61,50,240); color: #f8f8f2; "
+                "border: 1px solid #a59f85; padding: 3px;"
             )
             if dark
             else (
@@ -685,13 +700,13 @@ class PlotWindow(QtWidgets.QMainWindow):
             )
         )
         self.overview_region.setBrush(
-            pg.mkBrush((90, 145, 220, 80) if dark else (80, 120, 220, 55))
+            pg.mkBrush((166, 226, 46, 50) if dark else (80, 120, 220, 55))
         )
         try:
             self.legend.setBrush(
-                pg.mkBrush("#2b2d30" if dark else "#ffffff")
+                pg.mkBrush(MONOKAI_SURFACE if dark else "#ffffff")
             )
-            self.legend.setPen(pg.mkPen("#777c83" if dark else "#cccccc"))
+            self.legend.setPen(pg.mkPen("#a59f85" if dark else "#cccccc"))
             self.legend.setLabelTextColor(foreground)
         except (AttributeError, TypeError):
             pass
@@ -1005,13 +1020,13 @@ class PlotWindow(QtWidgets.QMainWindow):
 
         if not valid:
             self.status_label.setStyleSheet(
-                f"color: {'#ff8a9b' if self.dark_mode else '#b00020'};"
+                f"color: {MONOKAI_PINK if self.dark_mode else '#b00020'};"
             )
             self.status_label.setText("; ".join(errors) or "No curves configured")
             return
 
         self.status_label.setStyleSheet(
-            f"color: {'#e8eaed' if self.dark_mode else '#202124'};"
+            f"color: {MONOKAI_FOREGROUND if self.dark_mode else '#202124'};"
         )
         self.status_label.setText(
             f"{len(valid)} curve(s) drawn"
@@ -1041,7 +1056,7 @@ class PlotWindow(QtWidgets.QMainWindow):
                 size=10,
                 brush=pg.mkBrush(color),
                 pen=pg.mkPen(
-                    "#e8eaed" if self.dark_mode else "#202124", width=1
+                    MONOKAI_FOREGROUND if self.dark_mode else "#202124", width=1
                 ),
             )
             marker.hide()

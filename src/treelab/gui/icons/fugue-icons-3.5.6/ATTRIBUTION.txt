@@ -9,6 +9,7 @@ blue-document-attribute.png
 blue-document-binary.png
 blue-document-copy.png
 blue-document-rename.png
+bin-metal.png
 border-left.png
 chain--plus.png
 chain.png

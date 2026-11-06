@@ -16,8 +16,11 @@ from noder.core import Node
 import noder.core.io as noder_io
 
 from .document import TreeDocument
-from .model import rename_node_unique, unique_sibling_name
+from .model import NoderTreeModel, rename_node_unique, unique_sibling_name
 from .style import (
+    MOLA_DARK,
+    MOLA_LIGHT,
+    MONOKAI_BRANCH,
     apply_fixed_dark_palette,
     apply_fixed_light_palette,
     make_theme_icon,
@@ -56,6 +59,36 @@ _CGNS_TYPE_INSPECTOR_CHOICES = [
     "B1 (byte, CGNS standard)",
     "MT (empty, CGNS standard)",
 ]
+_OFFSCREEN_TRANSFER_CLIPBOARD: tuple[bytes, bytes] | None = None
+
+
+def _set_transfer_clipboard(payload: bytes, metadata: bytes) -> None:
+    """Store portable node data on the system clipboard when supported."""
+    global _OFFSCREEN_TRANSFER_CLIPBOARD
+    app = QtWidgets.QApplication.instance()
+    if app is None or app.platformName() == "offscreen":
+        _OFFSCREEN_TRANSFER_CLIPBOARD = (payload, metadata)
+        return
+    _OFFSCREEN_TRANSFER_CLIPBOARD = None
+    mime = QtCore.QMimeData()
+    mime.setData(NoderTreeModel.TRANSFER_DATA_MIME_TYPE, payload)
+    mime.setData(NoderTreeModel.TRANSFER_METADATA_MIME_TYPE, metadata)
+    app.clipboard().setMimeData(mime)
+
+
+def _get_transfer_clipboard() -> tuple[bytes, bytes] | None:
+    app = QtWidgets.QApplication.instance()
+    if app is not None and app.platformName() == "offscreen":
+        return _OFFSCREEN_TRANSFER_CLIPBOARD
+    if app is None:
+        return None
+    mime = app.clipboard().mimeData()
+    if not mime.hasFormat(NoderTreeModel.TRANSFER_DATA_MIME_TYPE):
+        return None
+    return (
+        bytes(mime.data(NoderTreeModel.TRANSFER_DATA_MIME_TYPE)),
+        bytes(mime.data(NoderTreeModel.TRANSFER_METADATA_MIME_TYPE)),
+    )
 
 
 def _icon(relative_path: str) -> QtGui.QIcon:
@@ -99,6 +132,85 @@ class TreeView(QtWidgets.QTreeView):
         self.verticalScrollBar().valueChanged.connect(
             self._maybe_load_more_at_viewport_end
         )
+
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
+        model = self.model()
+        external_bundle = (
+            event.mimeData().hasFormat(NoderTreeModel.TRANSFER_DATA_MIME_TYPE)
+            and not model.has_registered_drag(event.mimeData())
+        )
+        if external_bundle:
+            # Independent TreeLab processes cannot remove the source node, so
+            # make the cross-process operation an explicit copy.
+            event.setDropAction(QtCore.Qt.DropAction.CopyAction)
+        if not event.mimeData().hasFormat(NoderTreeModel.TRANSFER_DATA_MIME_TYPE):
+            super().dropEvent(event)
+            return
+
+        window = self.window()
+        if not isinstance(window, MainWindow):
+            super().dropEvent(event)
+            return
+        previous_callback = model._transfer_progress_callback
+        with window._busy_progress("Copy nodes", "Opening transferred nodes…") as progress:
+            def report(message):
+                progress.setLabelText(message)
+                QtWidgets.QApplication.processEvents()
+
+            model._transfer_progress_callback = report
+            try:
+                super().dropEvent(event)
+            finally:
+                model._transfer_progress_callback = previous_callback
+
+    def startDrag(self, supported_actions) -> None:
+        model = self.model()
+        tokens_before = model.registered_drag_tokens()
+        window = self.window()
+        if not isinstance(window, MainWindow):
+            super().startDrag(supported_actions)
+            model.release_drag_tokens(
+                model.registered_drag_tokens() - tokens_before
+            )
+            return
+        previous_callback = model._drag_progress_callback
+        app = QtWidgets.QApplication.instance()
+        cursor_active = app is not None
+        if cursor_active:
+            app.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        progress = None
+        try:
+            progress = window._progress(
+                "Prepare drag",
+                "Preparing selected nodes…",
+                application_modal=True,
+                cancelable=False,
+            )
+
+            def report(message):
+                nonlocal cursor_active
+                if message == "Drag ready":
+                    progress.close()
+                    if cursor_active:
+                        app.restoreOverrideCursor()
+                        cursor_active = False
+                else:
+                    progress.setLabelText(message)
+                    QtWidgets.QApplication.processEvents()
+
+            model._drag_progress_callback = report
+            try:
+                super().startDrag(supported_actions)
+            finally:
+                model._drag_progress_callback = previous_callback
+        finally:
+            if progress is not None:
+                progress.close()
+            if cursor_active:
+                app.restoreOverrideCursor()
+            model.release_drag_tokens(
+                model.registered_drag_tokens() - tokens_before
+            )
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         if (
@@ -227,12 +339,11 @@ class TreeView(QtWidgets.QTreeView):
         indentation = self.indentation()
         left = rect.left()
         center_y = rect.center().y()
-        line_role = (
-            QtGui.QPalette.ColorRole.Midlight
+        line_color = (
+            QtGui.QColor(MOLA_LIGHT)
             if palette_is_dark(self)
-            else QtGui.QPalette.ColorRole.Mid
+            else QtGui.QColor(MOLA_DARK)
         )
-        line_color = self.palette().color(line_role)
         if not line_color.isValid():
             line_color = self.palette().color(QtGui.QPalette.ColorRole.Text)
 
@@ -267,14 +378,14 @@ class TreeView(QtWidgets.QTreeView):
         # QTreeView still owns branch hit-testing and expansion state.
         if self.model().hasChildren(index):
             icon_name = (
-                "qtvsc/minus_square.png"
+                "OwnIcons/minus.svg"
                 if self.isExpanded(index)
-                else "qtvsc/plus_square.png"
+                else "OwnIcons/plus.svg"
             )
             branch_icon = _icon(icon_name)
             branch_icon.paint(
                 painter,
-                QtCore.QRect(node_x - 8, center_y - 8, 16, 16),
+                QtCore.QRect(node_x - 6, center_y - 6, 12, 12),
                 QtCore.Qt.AlignmentFlag.AlignCenter,
             )
         else:
@@ -402,7 +513,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._loading_children = set()
         self.documents: list[TreeDocument] = []
         self.views: list[DocumentView] = []
-        self.clipboard_nodes: list = []
         self.search_expression = ""
         self.search_kind = "predicate"
         self.search_results: list = []
@@ -575,6 +685,15 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_cgns_type_inspector, "Inspect CGNS HDF5 type")
         view_menu.addAction(self.action_cgns_type_inspector)
 
+        self.action_show_node_details = QtGui.QAction("Node details", self)
+        self.action_show_node_details.setCheckable(True)
+        self.action_show_node_details.setChecked(True)
+        self.action_show_node_details.triggered.connect(
+            self._set_node_details_visible
+        )
+        help_text(self.action_show_node_details, "Show or hide the node details pane")
+        view_menu.addAction(self.action_show_node_details)
+
         initial_dark = palette_is_dark(QtWidgets.QApplication.instance())
         theme_label = "Switch to light mode" if initial_dark else "Switch to dark mode"
         self.action_toggle_theme = QtGui.QAction(
@@ -584,31 +703,31 @@ class MainWindow(QtWidgets.QMainWindow):
         help_text(self.action_toggle_theme, theme_label)
         view_menu.addAction(self.action_toggle_theme)
 
-        self.action_plot = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Plot selected data", self)
+        self.action_plot = QtGui.QAction(_icon("OwnIcons/xy.svg"), "Plot multiply selected nodes (first is common X)", self)
         self.action_plot.triggered.connect(self.plot_selected)
-        help_text(self.action_plot, "Plot selected data")
+        help_text(self.action_plot, "Plot multiply selected nodes (first is common X)")
         view_menu.addAction(self.action_plot)
 
-        self.action_plot_add_x = QtGui.QAction(_icon("OwnIcons/x-16.png"), "Add selected data to X", self)
+        self.action_plot_add_x = QtGui.QAction(_icon("OwnIcons/x.svg"), "Add selected data to X", self)
         self.action_plot_add_x.setShortcut(QtGui.QKeySequence("X"))
         self.action_plot_add_x.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
         self.action_plot_add_x.triggered.connect(self.add_selected_to_plot_x)
         help_text(self.action_plot_add_x, "Add selected data to X", "X")
         view_menu.addAction(self.action_plot_add_x)
 
-        self.action_plot_add_y = QtGui.QAction(_icon("OwnIcons/y-16.png"), "Add selected data to Y", self)
+        self.action_plot_add_y = QtGui.QAction(_icon("OwnIcons/y.svg"), "Add selected data to Y", self)
         self.action_plot_add_y.setShortcut(QtGui.QKeySequence("Y"))
         self.action_plot_add_y.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
         self.action_plot_add_y.triggered.connect(self.add_selected_to_plot_y)
         help_text(self.action_plot_add_y, "Add selected data to Y", "Y")
         view_menu.addAction(self.action_plot_add_y)
 
-        self.action_plot_add_curve = QtGui.QAction(_icon("OwnIcons/add-curve-16.png"), "Add plot curve", self)
+        self.action_plot_add_curve = QtGui.QAction(_icon("OwnIcons/add-curve.svg"), "Add plot curve", self)
         self.action_plot_add_curve.triggered.connect(self.add_plot_curve)
         help_text(self.action_plot_add_curve, "Add plot curve")
         view_menu.addAction(self.action_plot_add_curve)
 
-        self.action_plot_draw = QtGui.QAction(_icon("OwnIcons/see-curve-16.png"), "Draw plot curves", self)
+        self.action_plot_draw = QtGui.QAction(_icon("OwnIcons/see-curve.svg"), "Draw plot curves", self)
         self.action_plot_draw.setShortcut(QtGui.QKeySequence("P"))
         self.action_plot_draw.setShortcutContext(QtCore.Qt.ShortcutContext.WindowShortcut)
         self.action_plot_draw.triggered.connect(self.draw_plot_curves)
@@ -690,9 +809,18 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.setIconSize(QtCore.QSize(24, 24))
         toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.addToolBar(QtCore.Qt.ToolBarArea.TopToolBarArea, toolbar)
+
         toolbar.addAction(self.action_open)
         toolbar.addAction(self.action_save)
         toolbar.addAction(self.action_save_as)
+
+        toolbar.addSeparator()
+
+        toolbar.addAction(self.action_search)
+        toolbar.addAction(self.action_cgns_type_inspector)
+
+        toolbar.addSeparator()
+
         toolbar.addAction(self.action_new_node)
         toolbar.addAction(self.action_rename_nodes)
         toolbar.addAction(self.action_set_node_type)
@@ -700,21 +828,28 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addAction(self.action_cut)
         toolbar.addAction(self.action_copy)
         toolbar.addAction(self.action_paste)
-        toolbar.addAction(self.action_search)
-        toolbar.addAction(self.action_cgns_type_inspector)
-        toolbar.addAction(self.action_plot)
-        toolbar.addAction(self.action_plot_add_x)
-        toolbar.addAction(self.action_plot_add_y)
-        toolbar.addAction(self.action_plot_add_curve)
-        toolbar.addAction(self.action_plot_draw)
+        toolbar.addAction(self.action_swap)
+
         toolbar.addSeparator()
+
         toolbar.addAction(self.action_load_payload)
         toolbar.addAction(self.action_unload_payload)
         toolbar.addAction(self.action_read_link)
         toolbar.addAction(self.action_set_link)
+
         toolbar.addSeparator()
-        toolbar.addAction(self.action_swap)
+
+        toolbar.addAction(self.action_plot)
+        toolbar.addAction(self.action_plot_add_x)
+        toolbar.addAction(self.action_plot_add_y)
+        toolbar.addAction(self.action_plot_add_curve)
+
         toolbar.addSeparator()
+
+        toolbar.addAction(self.action_plot_draw)
+
+        toolbar.addSeparator()
+
         toolbar.addAction(self.action_toggle_theme)
 
         if self.read_only:
@@ -841,6 +976,9 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow(self.node_action_buttons)
         form.addRow(self.new_payload_button)
         self.dock.setWidget(panel)
+        self.dock.visibilityChanged.connect(
+            self.action_show_node_details.setChecked
+        )
         self.save_node_button.clicked.connect(self.save_current_node)
         self.dump_data_button.clicked.connect(self.dump_current_node_data)
         self.new_payload_button.clicked.connect(self.new_payload)
@@ -855,6 +993,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.new_payload_button.setEnabled(False)
         else:
             self._update_save_node_state()
+
+    def _set_node_details_visible(self, visible: bool) -> None:
+        self.dock.setVisible(visible)
+        if visible:
+            self.dock.raise_()
 
     def current_view(self) -> DocumentView | None:
         index = self.tabs.currentIndex()
@@ -1840,7 +1983,19 @@ class MainWindow(QtWidgets.QMainWindow):
         expression, accepted = QtWidgets.QInputDialog.getText(
             self,
             "Search tree",
-            "Noder predicate (for example: n:Coordinate* or t:Zone_t):",
+            ("Search node(s) using Noder predicate. Help (squared brackets ommitted): \n"
+             "/ [descendant research]\n"
+             "\\ [ancestor research]\n"
+             'n:[name of node] ex: n:MyZone n:"My Node" n:Blade* \n'
+             "t:[label type (_t) of node] ex: t:Zone_t t:Family* \n"
+             "d:[data of node] ex: d:BLADE d:1 d<5 d>20 \n"
+             "l:[level of research] ex: l:1 l:2 \n"
+             "& [AND condition (default)]\n"
+             "| [OR condition (accepts parenthesis grouping)]\n"
+             "\nfull example:\n"
+             "/ t:Zone_t l:2 / n:.SolverParam l:1 / n:proc d:0 \\ t:Zone_t "
+             
+             ),
             text=self.search_expression,
         )
         if not accepted:
@@ -2056,8 +2211,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def cut_nodes(self) -> None:
         if self.read_only:
             return
-        self.copy_nodes()
-        self.delete_nodes()
+        if self.copy_nodes():
+            self.delete_nodes()
 
     def swap_nodes(self) -> None:
         if self.read_only:
@@ -2139,29 +2294,120 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as error:
             QtWidgets.QMessageBox.critical(self, "Dump data failed", str(error))
 
-    def copy_nodes(self) -> None:
+    def copy_nodes(self) -> bool:
         nodes = self._current_nodes()
-        self.clipboard_nodes = [node.copy(deep=True) for node in nodes]
-        self.statusBar().showMessage(f"Copied {len(self.clipboard_nodes)} node(s)")
+        document = self.current_document()
+        if not nodes or document is None:
+            self.statusBar().showMessage("Select at least one node to copy")
+            return False
+        try:
+            with self._busy_progress("Copy nodes", "Preparing selected nodes…") as progress:
+                def report(message):
+                    progress.setLabelText(message)
+                    QtWidgets.QApplication.processEvents()
+
+                mime = document.model.transfer_mime_data(
+                    nodes, progress_callback=report
+                )
+                _set_transfer_clipboard(
+                    bytes(mime.data(NoderTreeModel.TRANSFER_DATA_MIME_TYPE)),
+                    bytes(mime.data(NoderTreeModel.TRANSFER_METADATA_MIME_TYPE)),
+                )
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self, "Copy nodes failed", str(error))
+            return False
+        self.statusBar().showMessage(f"Copied {len(nodes)} node(s)")
+        return True
 
     def paste_nodes(self) -> None:
-        if self.read_only or not self.clipboard_nodes:
+        if self.read_only:
             return
         document = self.current_document()
         nodes = self._current_nodes()
         if not document or not nodes:
             return
-        document.model.beginResetModel()
+        transfer_data = _get_transfer_clipboard()
+        if transfer_data is None:
+            self.statusBar().showMessage("Clipboard does not contain TreeLab nodes")
+            return
+        payload, metadata_payload = transfer_data
+        imported_readers = []
+        transfer_filename = None
+        inserted = []
         try:
-            for target in nodes:
-                document.model.prepare_for_structural_edit(target)
-                for node in self.clipboard_nodes:
-                    copied = node.copy(deep=True)
-                    copied.set_name(unique_sibling_name(target, copied.name()))
-                    target.add_child(copied, override_sibling_by_name=False)
-        finally:
-            document.model.endResetModel()
+            with self._busy_progress("Paste nodes", "Opening transferred nodes…") as progress:
+                def report(message):
+                    progress.setLabelText(message)
+                    QtWidgets.QApplication.processEvents()
+
+                (
+                    clipboard_nodes,
+                    metadata,
+                    first_reader,
+                    transfer_filename,
+                ) = NoderTreeModel._open_transfer_bundle(
+                    payload,
+                    metadata_payload,
+                    progress_callback=report,
+                )
+                imported_readers.append(first_reader)
+                if not clipboard_nodes:
+                    raise ValueError("The clipboard does not contain any nodes")
+
+                document.model.beginResetModel()
+                try:
+                    for target_index, target in enumerate(nodes):
+                        progress.setLabelText(
+                            f"Adding nodes to {target.name()}…"
+                        )
+                        QtWidgets.QApplication.processEvents()
+                        document.model.prepare_for_structural_edit(target)
+                        if target_index == 0:
+                            target_nodes = clipboard_nodes
+                        else:
+                            target_nodes, reader = (
+                                NoderTreeModel._open_existing_transfer_bundle(
+                                    transfer_filename,
+                                    metadata,
+                                    progress_callback=report,
+                                )
+                            )
+                            imported_readers.append(reader)
+                        for node in target_nodes:
+                            NoderTreeModel.rebase_link_targets(
+                                node,
+                                metadata.get("source_filename"),
+                                document.filename,
+                            )
+                            node.set_name(unique_sibling_name(target, node.name()))
+                            target.add_child(node, override_sibling_by_name=False)
+                            inserted.append(node)
+                except Exception:
+                    for node in reversed(inserted):
+                        node.detach()
+                    raise
+                finally:
+                    document.model._clear_visible_children_cache()
+                    document.model._automatic_fetch_nodes.clear()
+                    document.model.endResetModel()
+
+                for index, reader in enumerate(imported_readers):
+                    document.retain_link_reader(
+                        reader,
+                        cleanup_filename=transfer_filename if index == 0 else None,
+                    )
+                imported_readers.clear()
+        except Exception as error:
+            for reader in imported_readers:
+                reader.close()
+            if transfer_filename:
+                Path(transfer_filename).unlink(missing_ok=True)
+            QtWidgets.QMessageBox.warning(self, "Paste nodes failed", str(error))
+            return
         document.mark_changed(full=True)
+        self.statusBar().showMessage(
+            f"Pasted {len(clipboard_nodes)} node(s) into {len(nodes)} target(s)"
+        )
 
     def set_link(self) -> None:
         """Replace one selected node with a link to a node in another file."""

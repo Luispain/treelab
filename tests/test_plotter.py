@@ -184,7 +184,7 @@ def test_plot_window_follows_dark_theme(qapp):
     plot = PlotWindow(window, window)
     try:
         assert plot.dark_mode
-        assert plot.main_plot.backgroundBrush().color().name() == "#17181a"
+        assert plot.main_plot.backgroundBrush().color().name() == "#272822"
         apply_fixed_light_palette(qapp)
         plot.apply_theme()
         assert not plot.dark_mode
