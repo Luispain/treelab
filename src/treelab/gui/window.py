@@ -2879,6 +2879,10 @@ class MainWindow(QtWidgets.QMainWindow):
             document.close()
         if self.plot_window is not None:
             self.plot_window.shutdown()
+        # Clear references to noder nodes that may carry HDF5 resources so
+        # that they are freed before the interpreter shutdown sequence begins.
+        self._selected_node = None
+        self.documents.clear()
         event.accept()
 
 

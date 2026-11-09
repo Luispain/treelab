@@ -277,6 +277,13 @@ class TreeDocument(QtCore.QObject):
             self.reader.close()
             self.reader = None
         self._close_linked_readers()
+        # Release all references to noder/HDF5 objects so that their memory
+        # is freed before the interpreter shutdown sequence begins. This
+        # prevents "munmap_chunk(): invalid pointer" segfaults on Python
+        # 3.8/3.10 where the cleanup order of C extensions is non-deterministic.
+        self.model = None
+        self.root = None
+        self._payload_dirty.clear()
 
     def retain_link_reader(self, reader, *, cleanup_filename: str | None = None) -> None:
         """Keep an external lazy reader alive while imported nodes use it."""
